@@ -31,7 +31,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: Fastify app, `/healthz`, PAT auth plugin (hashed tokens), `POST /v1/apps` internal create used by tests, structured error handler returning §8 envelope.
   - Done when: `pnpm db:migrate` works on a fresh DB; request without token returns `401 UNAUTHENTICATED` envelope; valid PAT creates an app row; integration test uses a real Postgres.
 
-- [ ] **T0.4 RuntimeProvider interface and Docker driver (basic)**
+- [x] **T0.4 RuntimeProvider interface and Docker driver (basic)**
   - Depends: T0.2. Files: `packages/runtime-docker`, `packages/runtime-conformance`.
   - Steps: implement the §4 interface with `dockerode`: per-app internal Docker network (`internal: true`), named volume mounted at `/data`, container with hardened settings from INV6 (non-root enforced via image USER check, read-only rootfs, cap-drop ALL, no-new-privileges, limits). Return `Reachable` via the container's IP on the app network. Gateway container attachment comes in T0.7.
   - Done when: conformance suite passes (deploy, start, stop, status, logs, remove with and without volume, idempotent `ensureApp`); a deployed sample container is not reachable from another app's network.
@@ -46,7 +46,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: implement §9 steps 1 to 5 with GitHub OAuth (`openid-client`, `state`), host-only cookies, one-time code exchange, ACL = owner only for now. User handle derived from GitHub login, validated and unique.
   - Done when: unauthenticated request redirects to auth host then back and shows the app; a different GitHub user gets 403; cookie from app A is rejected on app B (INV4); login code reuse and expiry fail (INV5).
 
-- [ ] **T0.7 Gateway to app proxy and identity headers**
+- [x] **T0.7 Gateway to app proxy and identity headers**
   - Depends: T0.4, T0.6. Files: `apps/gateway`, `examples/echo-identity`, `docker-compose.yml`.
   - Steps: run gateway as a container; when an app is deployed the driver connects the gateway container to that app's network; proxy HTTP and WebSocket; strip then inject `X-SCAD-*` headers (§10); JWKS endpoint.
   - Done when: echo app shows verified email; request with forged `X-SCAD-User-Email` is overridden (INV3); JWT verifies against JWKS and fails with wrong audience; apps remain unreachable from the host and from each other.

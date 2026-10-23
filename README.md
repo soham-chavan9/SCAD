@@ -24,7 +24,7 @@ Local services after `docker compose up -d`:
 | Postgres | 5432 | `postgres://scad:scad@localhost:5432/scad` |
 | Mailpit  | 8025 | SMTP UI; SMTP on 1025          |
 
-Control plane listens on `4000` once started; gateway on `8080` (auth at `http://auth.localhost:8080`).
+Control plane listens on `4000` on the host; gateway runs as the `scad-gateway` Compose service on `8080` (auth at `http://auth.localhost:8080`). The Docker runtime attaches that gateway container to each app network on deploy.
 
 ### Hostnames
 

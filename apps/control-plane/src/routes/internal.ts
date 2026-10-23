@@ -101,6 +101,9 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
         ownerHandle: row.ownerHandle,
         ownerEmail: row.ownerEmail,
         ownerStatus: row.ownerStatus,
+        // Convention matches packages/runtime-docker containerName()
+        upstreamHost: `scad-run-${row.appId}`,
+        port: 8080,
       };
     },
   );

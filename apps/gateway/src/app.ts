@@ -1,9 +1,12 @@
 import cookie from "@fastify/cookie";
+import replyFrom from "@fastify/reply-from";
 import Fastify from "fastify";
 import type { Db } from "@scad/control-plane";
 import type { IdentityProvider } from "./auth/identity.js";
 import { authHost, parseHost } from "./host.js";
+import type { IdentityKeyMaterial } from "./identity/keys.js";
 import { notFoundPage } from "./pages.js";
+import { attachWebSocketProxy } from "./proxy/websocket.js";
 import type { AppResolver } from "./resolve.js";
 import { appHostRoutes } from "./routes/app-host.js";
 import { authHostRoutes, type AuthHostOpts } from "./routes/auth-host.js";
@@ -13,22 +16,24 @@ export type BuildGatewayOptions = {
   baseDomain: string;
   identity: IdentityProvider;
   resolver: AppResolver;
+  keys: IdentityKeyMaterial;
   allowDevLogin?: boolean;
 };
 
 export async function buildGateway(opts: BuildGatewayOptions) {
   const app = Fastify({ logger: false });
   await app.register(cookie);
+  await app.register(replyFrom);
 
   const authHostname = authHost(opts.baseDomain);
 
-  // Auth host only (Fastify host constraint).
   await app.register(
     async (scope) => {
       const authOpts: AuthHostOpts = {
         db: opts.db,
         baseDomain: opts.baseDomain,
         identity: opts.identity,
+        keys: opts.keys,
         ...(opts.allowDevLogin !== undefined ? { allowDevLogin: opts.allowDevLogin } : {}),
       };
       await scope.register(authHostRoutes, authOpts);
@@ -36,7 +41,6 @@ export async function buildGateway(opts: BuildGatewayOptions) {
     { constraints: { host: authHostname } },
   );
 
-  // App hosts: reject auth host so /login is not shadowed.
   await app.register(async (scope) => {
     scope.addHook("preHandler", async (request, reply) => {
       const parsed = parseHost(request.headers.host, opts.baseDomain);
@@ -48,7 +52,15 @@ export async function buildGateway(opts: BuildGatewayOptions) {
       db: opts.db,
       baseDomain: opts.baseDomain,
       resolver: opts.resolver,
+      keys: opts.keys,
     });
+  });
+
+  attachWebSocketProxy(app.server, {
+    db: opts.db,
+    baseDomain: opts.baseDomain,
+    resolver: opts.resolver,
+    keys: opts.keys,
   });
 
   return app;
