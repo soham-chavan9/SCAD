@@ -41,7 +41,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: device-code login storing a PAT in `~/.config/scad/config.json` (mode 600); `scad publish [dir]` tars respecting `.gitignore` and `.scadignore`, rejects over 100 MB; control plane stores tarball, creates release, builder runs `docker build`, smoke-checks that the declared port answers HTTP within 30 s, then calls `RuntimeProvider.deploy`; failed release leaves the previous release serving; response and logs stream back the URL.
   - Done when: `scad publish examples/hello-node` prints a URL and the container is running; breaking the Dockerfile returns `BUILD_FAILED` with `hint` and `details.log_tail`; an app not listening on its port returns `PORT_NOT_LISTENING`.
 
-- [ ] **T0.6 Gateway v0: routing and GitHub sign-in**
+- [x] **T0.6 Gateway v0: routing and GitHub sign-in**
   - Depends: T0.3. Files: `apps/gateway`, auth host routes, `users`/`sessions`/`login_codes` migrations.
   - Steps: implement §9 steps 1 to 5 with GitHub OAuth (`openid-client`, `state`), host-only cookies, one-time code exchange, ACL = owner only for now. User handle derived from GitHub login, validated and unique.
   - Done when: unauthenticated request redirects to auth host then back and shows the app; a different GitHub user gets 403; cookie from app A is rejected on app B (INV4); login code reuse and expiry fail (INV5).

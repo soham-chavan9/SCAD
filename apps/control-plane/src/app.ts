@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import type { Db } from "./db/client.js";
@@ -8,17 +11,22 @@ import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
 import { healthRoutes } from "./routes/health.js";
 import { internalBuildsRoutes } from "./routes/internal-builds.js";
+import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
 export type BuildAppOptions = {
   db: Db["db"];
-  dataDir: string;
+  /** Persist publish tarballs/logs. Defaults to SCAD_DATA_DIR or a temp dir. */
+  dataDir?: string;
   baseDomain?: string;
   publicBaseUrl?: string;
   operatorEmails?: string[];
+  /** Shared secret for builder job claim/complete (INTERNAL_TOKEN). */
   internalToken?: string;
+  /** Shared secret for gateway → control-plane internal routes. */
+  internalSecret?: string;
   devices?: DeviceStore;
   paths?: DataPaths;
 };
@@ -29,7 +37,11 @@ export async function buildApp(opts: BuildAppOptions) {
     bodyLimit: 105 * 1024 * 1024,
   });
 
-  const paths = opts.paths ?? createDataPaths(opts.dataDir);
+  const dataDir =
+    opts.dataDir ??
+    process.env["SCAD_DATA_DIR"] ??
+    mkdtempSync(join(tmpdir(), "scad-data-"));
+  const paths = opts.paths ?? createDataPaths(dataDir);
   await ensureDataDirs(paths);
 
   const devices = opts.devices ?? new DeviceStore();
@@ -69,6 +81,14 @@ export async function buildApp(opts: BuildAppOptions) {
     paths,
     internalToken,
   });
+
+  if (opts.internalSecret) {
+    await app.register(internalRoutes, {
+      db: opts.db,
+      internalSecret: opts.internalSecret,
+      baseDomain,
+    });
+  }
 
   return app;
 }

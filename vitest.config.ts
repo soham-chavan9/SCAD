@@ -5,6 +5,7 @@ export default defineConfig({
     include: ["apps/*/src/**/*.test.ts", "packages/*/src/**/*.test.ts", "tests/*/src/**/*.test.ts"],
     environment: "node",
     passWithNoTests: false,
+    // Integration suites share one Postgres / Docker daemon; avoid cross-file races.
     fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 120_000,

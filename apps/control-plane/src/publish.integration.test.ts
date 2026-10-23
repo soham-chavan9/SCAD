@@ -43,7 +43,9 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     await runMigrations(databaseUrl);
     dbBundle = createDb(databaseUrl);
     await dbBundle.db.execute(sql`
-      TRUNCATE TABLE audit_events, machines, releases, pats, apps, users RESTART IDENTITY CASCADE
+      TRUNCATE TABLE
+        oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+      RESTART IDENTITY CASCADE
     `);
 
     app = await buildApp({
