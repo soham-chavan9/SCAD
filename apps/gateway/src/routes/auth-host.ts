@@ -5,12 +5,15 @@ import { createOauthState, takeOauthState } from "../auth/oauth-state.js";
 import { issueLoginCode } from "../auth/login-codes.js";
 import { upsertGithubUser } from "../auth/users.js";
 import { authHost } from "../host.js";
+import { jwksResponse } from "../identity/headers.js";
+import type { IdentityKeyMaterial } from "../identity/keys.js";
 import { badCallbackPage } from "../pages.js";
 
 export type AuthHostOpts = {
   db: Db["db"];
   baseDomain: string;
   identity: IdentityProvider;
+  keys: IdentityKeyMaterial;
   /** When set, /login/dev completes OAuth with this code (tests only). */
   allowDevLogin?: boolean;
 };
@@ -41,6 +44,8 @@ function parseReturnTo(
 export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts) => {
   const redirectUri = () =>
     `${publicOrigin(opts.baseDomain, authHost(opts.baseDomain))}/oauth/github/callback`;
+
+  app.get("/.well-known/jwks.json", async () => jwksResponse(opts.keys));
 
   app.get("/login", async (request, reply) => {
     const query = request.query as { return_to?: string };

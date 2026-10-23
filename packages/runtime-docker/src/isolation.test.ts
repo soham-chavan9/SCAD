@@ -29,7 +29,7 @@ async function pullImage(docker: Docker, image: string): Promise<void> {
  */
 describe("app network isolation", () => {
   const docker = new Docker();
-  const provider = new DockerRuntimeProvider();
+  const provider = new DockerRuntimeProvider({ gatewayContainerName: null });
   const appIds: string[] = [];
 
   afterAll(async () => {

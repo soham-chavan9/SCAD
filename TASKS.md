@@ -46,7 +46,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: implement §9 steps 1 to 5 with GitHub OAuth (`openid-client`, `state`), host-only cookies, one-time code exchange, ACL = owner only for now. User handle derived from GitHub login, validated and unique.
   - Done when: unauthenticated request redirects to auth host then back and shows the app; a different GitHub user gets 403; cookie from app A is rejected on app B (INV4); login code reuse and expiry fail (INV5).
 
-- [ ] **T0.7 Gateway to app proxy and identity headers**
+- [x] **T0.7 Gateway to app proxy and identity headers**
   - Depends: T0.4, T0.6. Files: `apps/gateway`, `examples/echo-identity`, `docker-compose.yml`.
   - Steps: run gateway as a container; when an app is deployed the driver connects the gateway container to that app's network; proxy HTTP and WebSocket; strip then inject `X-SCAD-*` headers (§10); JWKS endpoint.
   - Done when: echo app shows verified email; request with forged `X-SCAD-User-Email` is overridden (INV3); JWT verifies against JWKS and fails with wrong audience; apps remain unreachable from the host and from each other.

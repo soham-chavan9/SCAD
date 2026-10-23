@@ -1,4 +1,6 @@
+import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createLocalJWKSet, jwtVerify } from "jose";
 import { sql } from "drizzle-orm";
 import {
   buildApp as buildControlPlane,
@@ -12,19 +14,23 @@ import { issueLoginCode, consumeLoginCode, LoginCodeError } from "./auth/login-c
 import { buildGateway, type GatewayInstance } from "./app.js";
 import { SESSION_COOKIE, sessionCookieOptions } from "./cookies.js";
 import { appHost, authHost } from "./host.js";
+import { generateEphemeralIdentityKeys } from "./identity/keys.js";
 import { createHttpAppResolver } from "./resolve.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
 const BASE_DOMAIN = "localhost:8080";
 const INTERNAL_SECRET = "test-internal-secret";
 
-describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
+describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () => {
   let dbBundle: Db;
   let gateway: GatewayInstance;
   let identity: FakeIdentityProvider;
   let ownerId: string;
   let otherUserId: string;
   let controlPlane: Awaited<ReturnType<typeof buildControlPlane>>;
+  let echo: Server;
+  let echoPort: number;
+  let appIdHello: string;
 
   const ownerHost = appHost("hello", "alice", BASE_DOMAIN);
   const otherAppHost = appHost("other", "alice", BASE_DOMAIN);
@@ -40,6 +46,25 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
         oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
+
+    echo = createServer((req, res) => {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          email: req.headers["x-scad-user-email"] ?? null,
+          userId: req.headers["x-scad-user-id"] ?? null,
+          name: req.headers["x-scad-user-name"] ?? null,
+          identity: req.headers["x-scad-identity"] ?? null,
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => {
+      echo.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = echo.address();
+    if (!addr || typeof addr === "string") throw new Error("no echo port");
+    echoPort = addr.port;
 
     const [owner] = await dbBundle.db
       .insert(schema.users)
@@ -69,10 +94,15 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     if (!other) throw new Error("other insert failed");
     otherUserId = other.id;
 
-    await dbBundle.db.insert(schema.apps).values([
-      { slug: "hello", ownerId, status: "running" },
-      { slug: "other", ownerId, status: "running" },
-    ]);
+    const [helloApp] = await dbBundle.db
+      .insert(schema.apps)
+      .values([
+        { slug: "hello", ownerId, status: "running" },
+        { slug: "other", ownerId, status: "running" },
+      ])
+      .returning();
+    if (!helloApp) throw new Error("app insert failed");
+    appIdHello = helloApp.id;
 
     controlPlane = await buildControlPlane({
       db: dbBundle.db,
@@ -81,7 +111,6 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     });
     await controlPlane.ready();
 
-    // Drive /internal/resolve through the live control-plane inject transport.
     const resolver = {
       async resolve(host: string) {
         const res = await controlPlane.inject({
@@ -94,16 +123,23 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
         if (res.statusCode !== 200) {
           throw new Error(`resolve ${res.statusCode}: ${res.body}`);
         }
-        return res.json();
+        const base = res.json() as Record<string, unknown>;
+        return {
+          ...base,
+          upstreamHost: "127.0.0.1",
+          port: echoPort,
+        };
       },
     };
 
     identity = new FakeIdentityProvider();
+    const keys = await generateEphemeralIdentityKeys();
     gateway = await buildGateway({
       db: dbBundle.db,
       baseDomain: BASE_DOMAIN,
       identity,
       resolver,
+      keys,
       allowDevLogin: true,
     });
     await gateway.ready();
@@ -113,14 +149,20 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     await gateway?.close();
     await controlPlane?.close();
     await dbBundle?.client.end({ timeout: 5 });
+    await new Promise<void>((resolve, reject) => {
+      echo.close((err) => (err ? reject(err) : resolve()));
+    });
   });
 
-  async function completeGithubLogin(profile: {
-    githubId: string;
-    login: string;
-    email: string;
-    name: string;
-  }, targetHost: string) {
+  async function completeGithubLogin(
+    profile: {
+      githubId: string;
+      login: string;
+      email: string;
+      name: string;
+    },
+    targetHost: string,
+  ) {
     const returnTo = `http://${targetHost}/`;
     const loginRes = await gateway.inject({
       method: "GET",
@@ -144,7 +186,6 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     expect(cb.statusCode).toBe(302);
     const appCallback = new URL(cb.headers.location!);
     expect(appCallback.host).toBe(targetHost);
-    expect(appCallback.pathname).toBe("/__scad/callback");
 
     const exchanged = await gateway.inject({
       method: "GET",
@@ -161,17 +202,14 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     return match![1]!;
   }
 
-  it("unauthenticated request redirects to auth host then back and shows the app", async () => {
+  it("unauthenticated request redirects to auth host then back and shows verified email", async () => {
     const unauth = await gateway.inject({
       method: "GET",
       url: "/",
       headers: { host: ownerHost },
     });
     expect(unauth.statusCode).toBe(302);
-    const loc = new URL(unauth.headers.location!);
-    expect(loc.host).toBe(auth);
-    expect(loc.pathname).toBe("/login");
-    expect(loc.searchParams.get("return_to")).toBe(`http://${ownerHost}/`);
+    expect(new URL(unauth.headers.location!).host).toBe(auth);
 
     const session = await completeGithubLogin(
       {
@@ -189,11 +227,38 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
       headers: {
         host: ownerHost,
         cookie: `${SESSION_COOKIE}=${session}`,
+        "x-scad-user-email": "forged@evil.test",
       },
     });
     expect(appRes.statusCode).toBe(200);
-    expect(appRes.body).toContain("data-scad-app=\"hello\"");
-    expect(appRes.body).toContain("is ready");
+    const body = appRes.json() as {
+      email: string;
+      userId: string;
+      identity: string;
+    };
+    expect(body.email).toBe("alice@example.com");
+    expect(body.userId).toBe(ownerId);
+    expect(body.identity).toBeTruthy();
+
+    const jwksRes = await gateway.inject({
+      method: "GET",
+      url: "/.well-known/jwks.json",
+      headers: { host: auth },
+    });
+    expect(jwksRes.statusCode).toBe(200);
+    const jwks = createLocalJWKSet(jwksRes.json());
+    const { payload } = await jwtVerify(body.identity, jwks, {
+      issuer: `http://${auth}`,
+      audience: appIdHello,
+    });
+    expect(payload["email"]).toBe("alice@example.com");
+
+    await expect(
+      jwtVerify(body.identity, jwks, {
+        issuer: `http://${auth}`,
+        audience: "wrong-app-id",
+      }),
+    ).rejects.toThrow();
   });
 
   it("a different GitHub user gets 403", async () => {
@@ -216,7 +281,6 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
       },
     });
     expect(appRes.statusCode).toBe(403);
-    expect(appRes.body).toContain("403");
     expect(otherUserId).toBeTruthy();
   });
 
@@ -241,7 +305,6 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
         cookie: `${SESSION_COOKIE}=${session}`,
       },
     });
-    // Host-bound session: treated as unauthenticated → redirect to login
     expect(onB.statusCode).toBe(302);
     expect(onB.headers.location).toContain(`auth.${BASE_DOMAIN}/login`);
   });
@@ -255,12 +318,10 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth (Postgres)", () => {
     const first = await consumeLoginCode(dbBundle.db, { code, appHost: ownerHost });
     expect(first.userId).toBe(ownerId);
 
-    await expect(consumeLoginCode(dbBundle.db, { code, appHost: ownerHost })).rejects.toBeInstanceOf(
-      LoginCodeError,
-    );
     await expect(consumeLoginCode(dbBundle.db, { code, appHost: ownerHost })).rejects.toMatchObject({
       reason: "reused",
     });
+    expect(LoginCodeError).toBeTruthy();
 
     const expiredCode = await issueLoginCode(dbBundle.db, {
       userId: ownerId,

@@ -2,20 +2,24 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { Db } from "@scad/control-plane";
 import { LoginCodeError, consumeLoginCode } from "../auth/login-codes.js";
 import { createSession, loadSessionUser } from "../auth/sessions.js";
+import type { GatewayUser } from "../auth/users.js";
 import { SESSION_COOKIE, setSessionCookie } from "../cookies.js";
 import { authHost } from "../host.js";
+import { buildUpstreamHeaders } from "../identity/headers.js";
+import type { IdentityKeyMaterial } from "../identity/keys.js";
 import {
-  appReadyPage,
   badCallbackPage,
   forbiddenPage,
   notFoundPage,
 } from "../pages.js";
 import type { AppResolver, ResolvedApp } from "../resolve.js";
+import { upstreamTarget } from "../resolve.js";
 
 export type AppHostOpts = {
   db: Db["db"];
   baseDomain: string;
   resolver: AppResolver;
+  keys: IdentityKeyMaterial;
 };
 
 function requestHost(request: FastifyRequest): string {
@@ -31,6 +35,11 @@ function loginRedirectUrl(baseDomain: string, request: FastifyRequest): string {
   return url.toString();
 }
 
+function issuerUrl(baseDomain: string): string {
+  const proto = baseDomain.startsWith("localhost") ? "http" : "https";
+  return `${proto}://${authHost(baseDomain)}`;
+}
+
 function aclAllowsOwner(app: ResolvedApp, userId: string): boolean {
   if (app.ownerStatus !== "active") return false;
   if (app.status === "suspended" || app.status === "expired" || app.status === "deleted") {
@@ -39,8 +48,32 @@ function aclAllowsOwner(app: ResolvedApp, userId: string): boolean {
   if (app.expiresAt && new Date(app.expiresAt).getTime() <= Date.now()) {
     return false;
   }
-  // T0.6: ACL = owner only
   return app.ownerId === userId;
+}
+
+async function requireAppSession(
+  request: FastifyRequest,
+  opts: AppHostOpts,
+): Promise<{ resolved: ResolvedApp; user: GatewayUser } | { redirect: string } | { forbidden: true } | { notFound: true }> {
+  const host = requestHost(request);
+  const resolved = await opts.resolver.resolve(host);
+  if (!resolved) {
+    return { notFound: true };
+  }
+
+  const sessionId = request.cookies[SESSION_COOKIE];
+  const user = sessionId
+    ? await loadSessionUser(opts.db, { sessionId, appHost: host })
+    : null;
+  if (!user) {
+    return { redirect: loginRedirectUrl(opts.baseDomain, request) };
+  }
+
+  if (!aclAllowsOwner(resolved, user.id)) {
+    return { forbidden: true };
+  }
+
+  return { resolved, user };
 }
 
 export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) => {
@@ -75,29 +108,31 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
     }
   });
 
-  app.get("/*", async (request, reply) => {
-    const host = requestHost(request);
-    const resolved = await opts.resolver.resolve(host);
-    if (!resolved) {
+  app.all("/*", async (request, reply) => {
+    const gate = await requireAppSession(request, opts);
+    if ("notFound" in gate) {
       return reply.status(404).type("text/html").send(notFoundPage());
     }
-
-    const sessionId = request.cookies[SESSION_COOKIE];
-    const user = sessionId
-      ? await loadSessionUser(opts.db, { sessionId, appHost: host })
-      : null;
-    if (!user) {
-      return reply.redirect(loginRedirectUrl(opts.baseDomain, request));
+    if ("redirect" in gate) {
+      return reply.redirect(gate.redirect);
     }
-
-    if (!aclAllowsOwner(resolved, user.id)) {
+    if ("forbidden" in gate) {
       return reply.status(403).type("text/html").send(forbiddenPage());
     }
 
-    // Proxy lands in T0.7; for T0.6 show a ready page after ACL.
-    return reply
-      .status(200)
-      .type("text/html")
-      .send(appReadyPage(resolved.slug, resolved.ownerHandle));
+    const { resolved, user } = gate;
+    const target = upstreamTarget(resolved);
+    const identityHeaders = await buildUpstreamHeaders({
+      incoming: request.headers,
+      user,
+      appId: resolved.appId,
+      issuer: issuerUrl(opts.baseDomain),
+      keys: opts.keys,
+    });
+
+    const dest = `http://${target.host}:${target.port}`;
+    return reply.from(`${dest}${request.url}`, {
+      rewriteRequestHeaders: () => identityHeaders,
+    });
   });
 };
