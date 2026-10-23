@@ -12,5 +12,13 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@scad/runtime-conformance": "workspace:*",
+    "@scad/shared": "workspace:*",
+    "dockerode": "5.0.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "4.0.2"
   }
 }
