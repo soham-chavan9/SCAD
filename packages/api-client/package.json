@@ -12,5 +12,8 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@scad/shared": "workspace:*"
   }
 }

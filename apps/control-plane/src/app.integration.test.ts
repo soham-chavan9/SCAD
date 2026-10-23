@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { buildApp, type AppInstance } from "./app.js";
@@ -13,11 +16,13 @@ describe.runIf(Boolean(databaseUrl))("control-plane integration (Postgres)", () 
   let app: AppInstance;
   let patToken: string;
   let userId: string;
+  let dataDir: string;
 
   beforeAll(async () => {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL required");
     }
+    dataDir = await mkdtemp(join(tmpdir(), "scad-cp-"));
     await runMigrations(databaseUrl);
     dbBundle = createDb(databaseUrl);
 
@@ -50,13 +55,14 @@ describe.runIf(Boolean(databaseUrl))("control-plane integration (Postgres)", () 
       name: "test",
     });
 
-    app = await buildApp({ db: dbBundle.db });
+    app = await buildApp({ db: dbBundle.db, dataDir });
     await app.ready();
   });
 
   afterAll(async () => {
     await app?.close();
     await dbBundle?.client.end({ timeout: 5 });
+    if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
   it("GET /healthz is public", async () => {

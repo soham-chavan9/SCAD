@@ -24,7 +24,7 @@ Local services after `docker compose up -d`:
 | Postgres | 5432 | `postgres://scad:scad@localhost:5432/scad` |
 | Mailpit  | 8025 | SMTP UI; SMTP on 1025          |
 
-Control plane listens on `4000` once started; gateway on `8080` (auth at `http://auth.localhost:8080`).
+Control plane listens on `4000` once started; gateway on `8080` (auth at `http://auth.localhost:8080`). Control plane + builder support `scad login` / `scad publish` (T0.5).
 
 ### Hostnames
 
@@ -36,7 +36,7 @@ Chrome and Firefox resolve `*.localhost` to loopback. Safari may not — use dns
 apps/          control-plane, gateway, builder, egress-proxy
 packages/      shared, cli, mcp-server, api-client, runtime-*
 tests/         e2e, adversarial
-examples/      sample apps (later tasks)
+examples/      hello-node (more later)
 docs/          pointers to AGENTS.md / TASKS.md; more docs later
 ```
 
@@ -47,9 +47,11 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `pnpm install`       | Install workspace deps |
 | `pnpm lint`          | ESLint                 |
 | `pnpm typecheck`     | Strict `tsc -b`        |
-| `pnpm test`          | Vitest unit tests      |
+| `pnpm test`          | Vitest (needs Docker + Postgres) |
 | `pnpm format`        | Prettier write         |
 | `pnpm db:migrate`    | Apply control-plane Drizzle migrations |
 | `docker compose up -d` | Postgres + Mailpit   |
+| `pnpm exec tsx packages/cli/src/bin.ts login --approve-email you@example.com` | Device login (local) |
+| `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app |
 
-Set `DATABASE_URL` (see `.env.example`) before migrate/tests. `pnpm dev`, `pnpm test:e2e`, and `pnpm test:adversarial` land in later milestones.
+Set `DATABASE_URL` and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder processes locally when publishing outside tests.
