@@ -11,7 +11,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "dev": "echo \"dev scripts land in later tasks\"",
-    "db:migrate": "echo \"migrations land in T0.3\"",
+    "db:migrate": "pnpm --filter @scad/control-plane db:migrate",
     "test:e2e": "pnpm --filter @scad/e2e test",
     "test:adversarial": "pnpm --filter @scad/adversarial test",
     "format": "prettier --write .",
