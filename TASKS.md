@@ -21,27 +21,27 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: create the layout from AGENTS §5 with empty packages that each export a placeholder and one passing test; strict TS; CI runs lint, typecheck, test.
   - Done when: `pnpm install && pnpm lint && pnpm typecheck && pnpm test` pass locally and in CI; `docker compose up -d` brings up Postgres and Mailpit.
 
-- [ ] **T0.2 Shared package**
+- [x] **T0.2 Shared package**
   - Depends: T0.1. Files: `packages/shared`.
   - Steps: zod schemas for manifest (§11), error envelope and codes (§8), slug/handle validators, JWT sign/verify helpers (EdDSA, `jose`), id helpers.
   - Done when: unit tests cover valid/invalid manifests (bad slug, memory over cap, bad port), error envelope shape, JWT round-trip, wrong-audience and expired rejection.
 
-- [ ] **T0.3 Control plane skeleton and database**
+- [x] **T0.3 Control plane skeleton and database**
   - Depends: T0.2. Files: `apps/control-plane`, Drizzle schema and migrations for `users, apps, releases, machines, pats, audit_events` (full model in §7 can land later).
   - Steps: Fastify app, `/healthz`, PAT auth plugin (hashed tokens), `POST /v1/apps` internal create used by tests, structured error handler returning §8 envelope.
   - Done when: `pnpm db:migrate` works on a fresh DB; request without token returns `401 UNAUTHENTICATED` envelope; valid PAT creates an app row; integration test uses a real Postgres.
 
-- [ ] **T0.4 RuntimeProvider interface and Docker driver (basic)**
+- [x] **T0.4 RuntimeProvider interface and Docker driver (basic)**
   - Depends: T0.2. Files: `packages/runtime-docker`, `packages/runtime-conformance`.
   - Steps: implement the §4 interface with `dockerode`: per-app internal Docker network (`internal: true`), named volume mounted at `/data`, container with hardened settings from INV6 (non-root enforced via image USER check, read-only rootfs, cap-drop ALL, no-new-privileges, limits). Return `Reachable` via the container's IP on the app network. Gateway container attachment comes in T0.7.
   - Done when: conformance suite passes (deploy, start, stop, status, logs, remove with and without volume, idempotent `ensureApp`); a deployed sample container is not reachable from another app's network.
 
-- [ ] **T0.5 CLI login and publish (Dockerfile apps)**
+- [x] **T0.5 CLI login and publish (Dockerfile apps)**
   - Depends: T0.3, T0.4. Files: `packages/cli`, `packages/api-client`, `apps/builder`, control-plane publish route, `examples/hello-node`.
   - Steps: device-code login storing a PAT in `~/.config/scad/config.json` (mode 600); `scad publish [dir]` tars respecting `.gitignore` and `.scadignore`, rejects over 100 MB; control plane stores tarball, creates release, builder runs `docker build`, smoke-checks that the declared port answers HTTP within 30 s, then calls `RuntimeProvider.deploy`; failed release leaves the previous release serving; response and logs stream back the URL.
   - Done when: `scad publish examples/hello-node` prints a URL and the container is running; breaking the Dockerfile returns `BUILD_FAILED` with `hint` and `details.log_tail`; an app not listening on its port returns `PORT_NOT_LISTENING`.
 
-- [ ] **T0.6 Gateway v0: routing and GitHub sign-in**
+- [x] **T0.6 Gateway v0: routing and GitHub sign-in**
   - Depends: T0.3. Files: `apps/gateway`, auth host routes, `users`/`sessions`/`login_codes` migrations.
   - Steps: implement §9 steps 1 to 5 with GitHub OAuth (`openid-client`, `state`), host-only cookies, one-time code exchange, ACL = owner only for now. User handle derived from GitHub login, validated and unique.
   - Done when: unauthenticated request redirects to auth host then back and shows the app; a different GitHub user gets 403; cookie from app A is rejected on app B (INV4); login code reuse and expiry fail (INV5).

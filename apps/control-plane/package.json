@@ -11,6 +11,24 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@fastify/multipart": "9.0.3",
+    "@scad/shared": "workspace:*",
+    "drizzle-orm": "0.44.7",
+    "fastify": "5.12.7",
+    "fastify-plugin": "5.1.0",
+    "postgres": "3.4.9",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@scad/api-client": "workspace:*",
+    "@scad/builder": "workspace:*",
+    "@scad/cli": "workspace:*",
+    "@scad/runtime-docker": "workspace:*",
+    "drizzle-kit": "0.31.5"
   }
 }

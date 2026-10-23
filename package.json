@@ -11,7 +11,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "dev": "echo \"dev scripts land in later tasks\"",
-    "db:migrate": "echo \"migrations land in T0.3\"",
+    "db:migrate": "pnpm --filter @scad/control-plane db:migrate",
     "test:e2e": "pnpm --filter @scad/e2e test",
     "test:adversarial": "pnpm --filter @scad/adversarial test",
     "format": "prettier --write .",
@@ -24,6 +24,7 @@
     "eslint-config-prettier": "10.1.8",
     "globals": "16.5.0",
     "prettier": "3.6.2",
+    "tsx": "4.20.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.46.4",
     "vitest": "3.2.4"
