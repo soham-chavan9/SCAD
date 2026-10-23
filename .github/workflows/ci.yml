@@ -13,7 +13,7 @@ jobs:
   check:
     name: lint, typecheck, test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -62,3 +62,4 @@ jobs:
 
       - name: Test
         run: pnpm test
+        # Docker-backed runtime conformance (T0.4) needs the daemon (preinstalled on ubuntu-latest).
