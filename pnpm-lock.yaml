@@ -63,6 +63,9 @@ importers:
       '@types/tar':
         specifier: 6.1.13
         version: 6.1.13
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
 
   apps/control-plane:
     dependencies:
@@ -103,6 +106,9 @@ importers:
       drizzle-kit:
         specifier: 0.31.5
         version: 0.31.5
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
 
   apps/egress-proxy: {}
 

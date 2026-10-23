@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "dev": "echo \"dev scripts land in later tasks\"",
+    "dev": "echo \"Use: pnpm --filter @scad/control-plane start & pnpm --filter @scad/builder start & docker compose up -d\"",
     "db:migrate": "pnpm --filter @scad/control-plane db:migrate",
     "test:e2e": "pnpm --filter @scad/e2e test",
     "test:adversarial": "pnpm --filter @scad/adversarial test",

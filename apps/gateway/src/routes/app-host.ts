@@ -108,6 +108,11 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
     }
   });
 
+  /** Platform paths under /__scad/* never reach the app (callback handled above). */
+  app.all("/__scad/*", async (_request, reply) => {
+    return reply.status(404).type("text/html").send(notFoundPage());
+  });
+
   app.all("/*", async (request, reply) => {
     const gate = await requireAppSession(request, opts);
     if ("notFound" in gate) {

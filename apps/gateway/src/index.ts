@@ -11,7 +11,13 @@ export {
 } from "./resolve.js";
 export { parseHost, appHost, authHost } from "./host.js";
 export { SESSION_COOKIE, sessionCookieOptions } from "./cookies.js";
-export { issueLoginCode, consumeLoginCode, LoginCodeError } from "./auth/login-codes.js";
+export {
+  issueLoginCode,
+  consumeLoginCode,
+  LoginCodeError,
+  LOGIN_CODE_TTL_MS,
+} from "./auth/login-codes.js";
+
 export {
   generateEphemeralIdentityKeys,
   loadIdentityKeysFromPemPair,

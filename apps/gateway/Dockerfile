@@ -12,4 +12,5 @@ USER scad
 ENV PORT=8080
 EXPOSE 8080
 WORKDIR /app/apps/gateway
-CMD ["pnpm", "exec", "tsx", "src/server.ts"]
+# Avoid `pnpm exec` at runtime — corepack may try to re-fetch pnpm (egress/offline fails).
+CMD ["node", "--import", "tsx", "src/server.ts"]

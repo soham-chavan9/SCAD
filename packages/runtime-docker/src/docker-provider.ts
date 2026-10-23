@@ -86,7 +86,18 @@ export class DockerRuntimeProvider implements RuntimeProvider {
       },
     };
 
-    const container = await this.#docker.createContainer(createOpts);
+    let container;
+    try {
+      container = await this.#docker.createContainer(createOpts);
+    } catch (err) {
+      const message = isDockerError(err) ? (err.message ?? "") : String(err);
+      if ((isDockerError(err) && err.statusCode === 409) || /already in use/i.test(message)) {
+        await this.#removeExistingContainer(spec.appId);
+        container = await this.#docker.createContainer(createOpts);
+      } else {
+        throw err;
+      }
+    }
     await container.start();
     await this.#connectGateway(spec.appId);
     return { appId: spec.appId, providerId: container.id };
@@ -254,18 +265,30 @@ export class DockerRuntimeProvider implements RuntimeProvider {
 
   async #removeExistingContainer(appId: string): Promise<void> {
     const name = containerName(appId);
-    try {
-      const container = this.#docker.getContainer(name);
-      const info = await container.inspect();
-      if (info.State.Running) {
-        await container.stop({ t: 2 }).catch(() => undefined);
-      }
-      await container.remove({ force: true });
-    } catch (err) {
-      if (isDockerError(err) && err.statusCode === 404) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        const container = this.#docker.getContainer(name);
+        const info = await container.inspect();
+        if (info.State.Running) {
+          await container.stop({ t: 2 }).catch(() => undefined);
+        }
+        await container.remove({ force: true });
         return;
+      } catch (err) {
+        if (isDockerError(err) && err.statusCode === 404) {
+          return;
+        }
+        const message = isDockerError(err) ? (err.message ?? "") : String(err);
+        // Concurrent stop/remove (e.g. redeploy while AutoRemove smoke) — wait and retry.
+        if (
+          (isDockerError(err) && err.statusCode === 409) ||
+          /already in progress/i.test(message)
+        ) {
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
   }
 
