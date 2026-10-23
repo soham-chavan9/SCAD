@@ -4,7 +4,8 @@ export type DeploySpec = {
   appId: string;
   imageRef: string;
   port: number;
-  start?: string;
+  /** Container argv for Cmd — never a host-shell string (INV / T0.8). */
+  start?: string[];
   env: Record<string, string>;
   egressAllow: string[];
   limits: {

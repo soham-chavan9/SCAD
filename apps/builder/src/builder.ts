@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as tar from "tar";
 import { applyManifestDefaults, makeError, type ManifestInput } from "@scad/shared";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { dockerBuild } from "./docker-build.js";
+import { extractPublishTarball, SafeExtractError } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
+import { manifestStartToArgv } from "./start-argv.js";
 
 export type ClaimedJob = {
   releaseId: string;
@@ -55,10 +55,10 @@ export class Builder {
   }
 
   async processJob(job: ClaimedJob): Promise<void> {
-    const work = await mkdtemp(join(tmpdir(), "scad-build-"));
+    let work: string | undefined;
     try {
       await this.#log(job.releaseId, `claimed release ${job.releaseId} v${job.version}`);
-      await tar.x({ file: job.tarballPath, cwd: work });
+      work = await extractPublishTarball(job.tarballPath);
 
       const imageRef = `scad-apps/${job.appId}:v${job.version}`;
       const build = await dockerBuild({ contextDir: work, imageRef });
@@ -100,11 +100,14 @@ export class Builder {
       }
 
       await this.#runtime.ensureApp(job.appId, manifest.resources.disk_gb);
+      // start is always a string[] argv for Docker — never host-shell interpolated.
+      const startArgv =
+        manifest.start !== undefined ? manifestStartToArgv(manifest.start) : undefined;
       const machine = await this.#runtime.deploy({
         appId: job.appId,
         imageRef,
         port,
-        ...(manifest.start !== undefined ? { start: manifest.start } : {}),
+        ...(startArgv !== undefined ? { start: startArgv } : {}),
         env: manifest.env,
         egressAllow: manifest.egress,
         limits: {
@@ -119,6 +122,10 @@ export class Builder {
       await this.#log(job.releaseId, `deployed ${machine.providerId}`);
     } catch (err) {
       await this.#log(job.releaseId, `builder error: ${String(err)}`);
+      if (err instanceof SafeExtractError) {
+        await this.#fail(job.releaseId, err.envelope);
+        return;
+      }
       await this.#fail(
         job.releaseId,
         makeError(
@@ -129,7 +136,9 @@ export class Builder {
         ),
       );
     } finally {
-      await rm(work, { recursive: true, force: true });
+      if (work) {
+        await rm(work, { recursive: true, force: true });
+      }
     }
   }
 

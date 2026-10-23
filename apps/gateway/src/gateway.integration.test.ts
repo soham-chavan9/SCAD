@@ -309,6 +309,29 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
     expect(onB.headers.location).toContain(`auth.${BASE_DOMAIN}/login`);
   });
 
+  it("/__scad/* paths other than callback never reach the app", async () => {
+    const session = await completeGithubLogin(
+      {
+        githubId: "1001",
+        login: "alice",
+        email: "alice@example.com",
+        name: "Alice",
+      },
+      ownerHost,
+    );
+
+    const res = await gateway.inject({
+      method: "GET",
+      url: "/__scad/should-not-proxy",
+      headers: {
+        host: ownerHost,
+        cookie: `${SESSION_COOKIE}=${session}`,
+      },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain("alice@example.com");
+  });
+
   it("login code reuse and expiry fail (INV5)", async () => {
     const code = await issueLoginCode(dbBundle.db, {
       userId: ownerId,

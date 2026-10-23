@@ -51,6 +51,13 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: run gateway as a container; when an app is deployed the driver connects the gateway container to that app's network; proxy HTTP and WebSocket; strip then inject `X-SCAD-*` headers (§10); JWKS endpoint.
   - Done when: echo app shows verified email; request with forged `X-SCAD-User-Email` is overridden (INV3); JWT verifies against JWKS and fails with wrong audience; apps remain unreachable from the host and from each other.
 
+- [x] **T0.8 Hardening before friends**
+  - Depends: T0.5–T0.7. Files: `scripts/m0-smoke.sh`, builder safe extract, gateway fake-auth guard, `/internal/resolve` port, runtime INV tests, `TASKS.md` / `.env.example`.
+  - Steps: audit PR #10 extras; smoke script no sudo by default (`--vm-only` Linux-only for bridge-nf/DOCKER-USER); `GATEWAY_FAKE_AUTH` refuses non-localhost `BASE_DOMAIN`; safe tarball extract (reject abs/`..`/device/FIFO/hardlink/escape symlink; size/count limits; skip `node_modules`/`.git`); real INV1/2/6/11 tests; `manifest.start` as Docker argv array (never host shell); resolve returns manifest port; report docker-build network exposure (no change without ask).
+  - TODO (before gateway reachable outside localhost): gate GitHub sign-in with invite allowlist + fix `OPERATOR_EMAILS` scope.
+  - Verified in this PR: fake-auth guard + test; safe extract + malicious tar tests; INV1/2/6 Docker probes; INV11 validators/host/resolve; start argv (`packages/runtime-docker/src/docker-provider.ts` `Cmd: spec.start`); resolve manifest port test; docker-build exposure probe (report only); smoke `--vm-only` gated (default path has no sudo). Not verified here: full `m0-smoke.sh` on macOS Docker Desktop; human browser GitHub sign-in.
+  - Done when: listed acceptance checks pass; docs/report in store; one PR to main.
+
 **M0 exit:** publish a toy app, open it in the browser behind GitHub login, with a second GitHub account denied.
 
 ---

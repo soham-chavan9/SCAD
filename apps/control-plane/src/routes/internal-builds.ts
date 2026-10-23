@@ -25,6 +25,9 @@ function assertInternal(request: { headers: Record<string, unknown> }, token: st
 }
 
 export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = async (app, opts) => {
+  /** In-process claim lock so multiple builders cannot process the same release. */
+  const claimedReleaseIds = new Set<string>();
+
   app.post(
     "/internal/builds/claim",
     { config: { public: true } },
@@ -36,27 +39,27 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
         .from(releases)
         .where(eq(releases.status, "building"))
         .orderBy(asc(releases.createdAt))
-        .limit(1);
+        .limit(20);
 
-      const release = candidates[0];
-      if (!release) {
-        return { job: null };
+      for (const release of candidates) {
+        if (claimedReleaseIds.has(release.id)) continue;
+
+        const [appRow] = await opts.db.select().from(apps).where(eq(apps.id, release.appId)).limit(1);
+        if (!appRow) continue;
+
+        claimedReleaseIds.add(release.id);
+        return {
+          job: {
+            releaseId: release.id,
+            appId: appRow.id,
+            version: release.version,
+            manifest: release.manifest,
+            tarballPath: opts.paths.tarballPath(release.id),
+          },
+        };
       }
 
-      const [appRow] = await opts.db.select().from(apps).where(eq(apps.id, release.appId)).limit(1);
-      if (!appRow) {
-        return { job: null };
-      }
-
-      return {
-        job: {
-          releaseId: release.id,
-          appId: appRow.id,
-          version: release.version,
-          manifest: release.manifest,
-          tarballPath: opts.paths.tarballPath(release.id),
-        },
-      };
+      return { job: null };
     },
   );
 
@@ -102,6 +105,8 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
       if (!release) {
         throw new ApiError(404, "NOT_FOUND", "Release not found", "Unknown release id.");
       }
+
+      claimedReleaseIds.delete(id);
 
       if (body.data.ok) {
         await opts.db
