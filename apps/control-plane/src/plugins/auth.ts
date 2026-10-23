@@ -21,6 +21,8 @@ declare module "fastify" {
 
   interface FastifyContextConfig {
     public?: boolean;
+    /** Skip PAT auth; route enforces INTERNAL_SECRET itself. */
+    internal?: boolean;
   }
 }
 
@@ -73,7 +75,7 @@ const authPluginImpl: FastifyPluginAsync<AuthPluginOpts> = async (app, opts) => 
 
   app.addHook("preHandler", async (request) => {
     const config = request.routeOptions.config;
-    if (config.public) {
+    if (config.public || config.internal) {
       return;
     }
     request.user = await resolveUser(request, opts.db);

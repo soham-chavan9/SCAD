@@ -104,3 +104,34 @@ export const auditEvents = pgTable("audit_events", {
   metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const sessions = pgTable("sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  /** Host that issued the cookie — sessions are host-bound (INV4). */
+  appHost: text("app_host").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+/** One-time gateway login codes (AGENTS §9 step 3–4). Stored hashed. */
+export const loginCodes = pgTable("login_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  appHost: text("app_host").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+
+/** OAuth CSRF state + PKCE verifier (auth host). */
+export const oauthStates = pgTable("oauth_states", {
+  state: text("state").primaryKey(),
+  codeVerifier: text("code_verifier").notNull(),
+  returnTo: text("return_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
