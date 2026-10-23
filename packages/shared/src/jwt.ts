@@ -48,12 +48,40 @@ export async function generateEd25519KeyPair(): Promise<{
   return { privateKey, publicKey, privateKeyPem, publicKeyPem };
 }
 
-export async function importPrivateKeyPem(pem: string): Promise<CryptoKey> {
-  return importPKCS8(pem, "EdDSA");
+/**
+ * Normalize a PEM from env: accept real multi-line PEMs or a single line with
+ * literal `\n` escapes. Idempotent when newlines are already real.
+ */
+export function normalizePemFromEnv(value: string): string {
+  return value.replace(/\\n/g, "\n").trim();
 }
 
-export async function importPublicKeyPem(pem: string): Promise<CryptoKey> {
-  return importSPKI(pem, "EdDSA");
+export async function importPrivateKeyPem(
+  pem: string,
+  envVarName = "JWT_PRIVATE_KEY",
+): Promise<CryptoKey> {
+  const normalized = normalizePemFromEnv(pem);
+  try {
+    return await importPKCS8(normalized, "EdDSA");
+  } catch {
+    throw new Error(
+      `${envVarName} could not be parsed as an Ed25519 PKCS8 PEM`,
+    );
+  }
+}
+
+export async function importPublicKeyPem(
+  pem: string,
+  envVarName = "JWT_PUBLIC_KEY",
+): Promise<CryptoKey> {
+  const normalized = normalizePemFromEnv(pem);
+  try {
+    return await importSPKI(normalized, "EdDSA");
+  } catch {
+    throw new Error(
+      `${envVarName} could not be parsed as an Ed25519 SPKI PEM`,
+    );
+  }
 }
 
 export async function signIdentityJwt(
