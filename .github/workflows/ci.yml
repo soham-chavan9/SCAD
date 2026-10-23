@@ -13,7 +13,25 @@ jobs:
   check:
     name: lint, typecheck, test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scad
+          POSTGRES_PASSWORD: scad
+          POSTGRES_DB: scad
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scad -d scad"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://scad:scad@localhost:5432/scad
 
     steps:
       - name: Checkout
@@ -39,5 +57,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Migrate database
+        run: pnpm db:migrate
+
       - name: Test
         run: pnpm test
+        # Docker-backed runtime conformance (T0.4) needs the daemon (preinstalled on ubuntu-latest).

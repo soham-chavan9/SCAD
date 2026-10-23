@@ -12,5 +12,14 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@scad/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "vitest": "3.2.4"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4"
   }
 }

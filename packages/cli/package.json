@@ -11,6 +11,20 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node --import tsx src/bin.ts"
+  },
+  "dependencies": {
+    "@scad/api-client": "workspace:*",
+    "@scad/shared": "workspace:*",
+    "commander": "14.0.1",
+    "ignore": "7.0.5",
+    "tar": "7.5.22"
+  },
+  "devDependencies": {
+    "@types/tar": "6.1.13"
+  },
+  "bin": {
+    "scad": "./src/bin.ts"
   }
 }

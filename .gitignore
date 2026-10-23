@@ -4,6 +4,8 @@ coverage/
 *.tsbuildinfo
 .env
 .env.local
+.env.bak
+.env.jwt-backup
 .DS_Store
 .turbo/
 *.log

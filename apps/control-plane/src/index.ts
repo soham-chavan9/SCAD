@@ -1,2 +1,7 @@
-/** Placeholder export for @scad/control-plane (API, migrations, scheduled jobs). Real implementation lands in a later task. */
 export const PACKAGE_NAME = "control-plane" as const;
+
+export { buildApp } from "./app.js";
+export { createDb, type Db } from "./db/client.js";
+export { runMigrations } from "./db/migrate.js";
+export { hashPat, issuePat } from "./auth/pat.js";
+export * as schema from "./db/schema.js";

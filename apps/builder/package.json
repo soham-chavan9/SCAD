@@ -12,5 +12,16 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@scad/runtime-conformance": "workspace:*",
+    "@scad/runtime-docker": "workspace:*",
+    "@scad/shared": "workspace:*",
+    "dockerode": "5.0.1",
+    "tar": "7.5.22"
+  },
+  "devDependencies": {
+    "@types/dockerode": "4.0.2",
+    "@types/tar": "6.1.13"
   }
 }
