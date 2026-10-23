@@ -23,7 +23,9 @@ describe.runIf(Boolean(databaseUrl))("control-plane integration (Postgres)", () 
 
     // Isolate tables for this suite
     await dbBundle.db.execute(sql`
-      TRUNCATE TABLE audit_events, machines, releases, pats, apps, users RESTART IDENTITY CASCADE
+      TRUNCATE TABLE
+        oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+      RESTART IDENTITY CASCADE
     `);
 
     const issued = issuePat();

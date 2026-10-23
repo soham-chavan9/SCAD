@@ -24,7 +24,7 @@ Local services after `docker compose up -d`:
 | Postgres | 5432 | `postgres://scad:scad@localhost:5432/scad` |
 | Mailpit  | 8025 | SMTP UI; SMTP on 1025          |
 
-Gateway (`8080`) and control plane (`4000`) come online in later tasks.
+Control plane listens on `4000` once started; gateway on `8080` (auth at `http://auth.localhost:8080`).
 
 ### Hostnames
 
