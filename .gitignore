@@ -6,7 +6,12 @@ coverage/
 .env.local
 .env.bak
 .env.jwt-backup
+.scad-smoke/
+.scad-data/
 .DS_Store
 .turbo/
 *.log
 .pnpm-store/
+
+.scad-smoke/
+.scad-data/

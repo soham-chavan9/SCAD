@@ -9,9 +9,16 @@ export {
   type AppResolver,
   type ResolvedApp,
 } from "./resolve.js";
-export { parseHost, appHost, authHost } from "./host.js";
+export { parseHost, appHost, authHost, isLocalhostBase } from "./host.js";
+export { assertFakeAuthAllowed } from "./fake-auth-guard.js";
 export { SESSION_COOKIE, sessionCookieOptions } from "./cookies.js";
-export { issueLoginCode, consumeLoginCode, LoginCodeError } from "./auth/login-codes.js";
+export {
+  issueLoginCode,
+  consumeLoginCode,
+  LoginCodeError,
+  LOGIN_CODE_TTL_MS,
+} from "./auth/login-codes.js";
+
 export {
   generateEphemeralIdentityKeys,
   loadIdentityKeysFromPemPair,

@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
+import { applyManifestDefaults, isHandle, isSlug, type ManifestInput } from "@scad/shared";
 import type { Db } from "../db/client.js";
-import { apps, users } from "../db/schema.js";
+import { apps, releases, users } from "../db/schema.js";
 import { ApiError, unauthenticated, validationFailed } from "../errors.js";
 
 const resolveBody = z.object({
@@ -36,7 +37,15 @@ function parseAppHost(
   if (!slug || !ownerHandle) {
     return null;
   }
+  // INV11: reject uppercase, path chars, over-length, etc. before DB lookup.
+  if (!isSlug(slug) || !isHandle(ownerHandle)) {
+    return null;
+  }
   return { slug, ownerHandle };
+}
+
+function portFromManifest(manifest: unknown): number {
+  return applyManifestDefaults((manifest ?? {}) as ManifestInput).port;
 }
 
 export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app, opts) => {
@@ -92,6 +101,15 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
         throw new ApiError(404, "NOT_FOUND", "Unknown app", "Check the app URL.", {});
       }
 
+      const ready = await opts.db
+        .select({ manifest: releases.manifest })
+        .from(releases)
+        .where(and(eq(releases.appId, row.appId), eq(releases.status, "ready")))
+        .orderBy(desc(releases.version))
+        .limit(1);
+
+      const port = portFromManifest(ready[0]?.manifest);
+
       return {
         appId: row.appId,
         slug: row.slug,
@@ -103,8 +121,10 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
         ownerStatus: row.ownerStatus,
         // Convention matches packages/runtime-docker containerName()
         upstreamHost: `scad-run-${row.appId}`,
-        port: 8080,
+        port,
       };
     },
   );
 };
+
+export { parseAppHost, portFromManifest };

@@ -11,7 +11,9 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
     "@scad/runtime-conformance": "workspace:*",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@types/dockerode": "4.0.2",
-    "@types/tar": "6.1.13"
+    "@types/tar": "6.1.13",
+    "tsx": "4.20.6"
   }
 }

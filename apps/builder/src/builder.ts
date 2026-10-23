@@ -1,11 +1,16 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as tar from "tar";
 import { applyManifestDefaults, makeError, type ManifestInput } from "@scad/shared";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { dockerBuild } from "./docker-build.js";
+import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
+
+/** Split manifest.start into argv — never passed through a host shell. */
+export function startToArgv(start: string): string[] {
+  return start.trim().split(/\s+/).filter(Boolean);
+}
 
 export type ClaimedJob = {
   releaseId: string;
@@ -58,7 +63,15 @@ export class Builder {
     const work = await mkdtemp(join(tmpdir(), "scad-build-"));
     try {
       await this.#log(job.releaseId, `claimed release ${job.releaseId} v${job.version}`);
-      await tar.x({ file: job.tarballPath, cwd: work });
+      try {
+        await safeExtractTarball({ tarballPath: job.tarballPath, destDir: work });
+      } catch (err) {
+        if (err instanceof SafeExtractError) {
+          await this.#fail(job.releaseId, err.envelope);
+          return;
+        }
+        throw err;
+      }
 
       const imageRef = `scad-apps/${job.appId}:v${job.version}`;
       const build = await dockerBuild({ contextDir: work, imageRef });
@@ -81,6 +94,8 @@ export class Builder {
         (job.manifest ?? {}) as ManifestInput,
       );
       const port = manifest.port;
+      const startArgv =
+        manifest.start !== undefined ? startToArgv(manifest.start) : undefined;
 
       try {
         await this.#log(job.releaseId, `smoke-checking port ${port}`);
@@ -104,7 +119,7 @@ export class Builder {
         appId: job.appId,
         imageRef,
         port,
-        ...(manifest.start !== undefined ? { start: manifest.start } : {}),
+        ...(startArgv !== undefined && startArgv.length > 0 ? { start: startArgv } : {}),
         env: manifest.env,
         egressAllow: manifest.egress,
         limits: {

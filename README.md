@@ -53,5 +53,6 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `docker compose up -d` | Postgres + Mailpit   |
 | `pnpm exec tsx packages/cli/src/bin.ts login --approve-email you@example.com` | Device login (local) |
 | `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app |
+| `bash scripts/m0-smoke.sh` | Browserless M0 exit checks (PASS/FAIL); no sudo (macOS Docker Desktop OK). Linux VMs with broken bridge ICC: `--vm-only` (refuses on macOS). |
 
-Set `DATABASE_URL` and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder processes locally when publishing outside tests.
+Set `DATABASE_URL` and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose (`GATEWAY_FAKE_AUTH=1` for browserless smoke).

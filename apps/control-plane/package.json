@@ -13,7 +13,9 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
     "@fastify/multipart": "9.0.3",
@@ -29,6 +31,7 @@
     "@scad/builder": "workspace:*",
     "@scad/cli": "workspace:*",
     "@scad/runtime-docker": "workspace:*",
-    "drizzle-kit": "0.31.5"
+    "drizzle-kit": "0.31.5",
+    "tsx": "4.20.6"
   }
 }
