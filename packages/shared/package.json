@@ -12,5 +12,9 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "jose": "6.2.13",
+    "zod": "4.6.7"
   }
 }

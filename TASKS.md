@@ -21,7 +21,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: create the layout from AGENTS §5 with empty packages that each export a placeholder and one passing test; strict TS; CI runs lint, typecheck, test.
   - Done when: `pnpm install && pnpm lint && pnpm typecheck && pnpm test` pass locally and in CI; `docker compose up -d` brings up Postgres and Mailpit.
 
-- [ ] **T0.2 Shared package**
+- [x] **T0.2 Shared package**
   - Depends: T0.1. Files: `packages/shared`.
   - Steps: zod schemas for manifest (§11), error envelope and codes (§8), slug/handle validators, JWT sign/verify helpers (EdDSA, `jose`), id helpers.
   - Done when: unit tests cover valid/invalid manifests (bad slug, memory over cap, bad port), error envelope shape, JWT round-trip, wrong-audience and expired rejection.
