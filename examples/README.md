@@ -1,3 +1,3 @@
 # Examples
 
-Sample apps used by later tasks (`hello-node`, `echo-identity`, and others). See `TASKS.md` Appendix A.
+- `hello-node` — minimal HTTP server on port 8080 with a Dockerfile (T0.5).
