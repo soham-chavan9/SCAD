@@ -20,13 +20,25 @@ import {
 export type DockerRuntimeOptions = {
   /** dockerode / Docker modem options. Defaults to local socket. */
   docker?: Docker.DockerOptions;
+  /**
+   * Gateway container name to attach to each app network on deploy (T0.7).
+   * Defaults to `scad-gateway`. Set `null` to disable attachment (unit tests).
+   */
+  gatewayContainerName?: string | null;
 };
+
+const DEFAULT_GATEWAY_CONTAINER = "scad-gateway";
 
 export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #docker: Docker;
+  readonly #gatewayContainerName: string | null;
 
   constructor(options: DockerRuntimeOptions = {}) {
     this.#docker = new Docker(options.docker);
+    this.#gatewayContainerName =
+      options.gatewayContainerName === undefined
+        ? DEFAULT_GATEWAY_CONTAINER
+        : options.gatewayContainerName;
   }
 
   async ensureApp(appId: string, _diskGb: number): Promise<void> {
@@ -76,6 +88,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
 
     const container = await this.#docker.createContainer(createOpts);
     await container.start();
+    await this.#connectGateway(spec.appId);
     return { appId: spec.appId, providerId: container.id };
   }
 
@@ -162,6 +175,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
   async remove(appId: string, opts: { deleteVolume: boolean }): Promise<void> {
     assertAppId(appId);
     await this.#removeExistingContainer(appId);
+    await this.#disconnectGateway(appId);
 
     const net = networkName(appId);
     try {
@@ -252,6 +266,47 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         return;
       }
       throw err;
+    }
+  }
+
+  async #connectGateway(appId: string): Promise<void> {
+    const gateway = this.#gatewayContainerName;
+    if (!gateway) return;
+    const net = networkName(appId);
+    try {
+      await this.#docker.getNetwork(net).connect({ Container: gateway });
+    } catch (err) {
+      // Already connected, or gateway not running yet (local unit tests).
+      if (isDockerError(err) && (err.statusCode === 403 || err.statusCode === 404)) {
+        return;
+      }
+      const message = isDockerError(err) ? (err.message ?? "") : "";
+      if (/already (exists|connected)/i.test(message)) {
+        return;
+      }
+      // Gateway missing in CI unit runs — soft-skip
+      if (/No such container/i.test(message) || (isDockerError(err) && err.statusCode === 404)) {
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async #disconnectGateway(appId: string): Promise<void> {
+    const gateway = this.#gatewayContainerName;
+    if (!gateway) return;
+    const net = networkName(appId);
+    try {
+      await this.#docker.getNetwork(net).disconnect({ Container: gateway, Force: true });
+    } catch (err) {
+      if (isDockerError(err) && (err.statusCode === 404 || err.statusCode === 500)) {
+        return;
+      }
+      const message = isDockerError(err) ? (err.message ?? "") : "";
+      if (/not (connected|found)|No such/i.test(message)) {
+        return;
+      }
+      // ignore disconnect failures during teardown
     }
   }
 

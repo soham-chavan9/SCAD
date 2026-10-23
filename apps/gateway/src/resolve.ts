@@ -7,7 +7,21 @@ export type ResolvedApp = {
   ownerHandle: string;
   ownerEmail: string;
   ownerStatus: string;
+  /** Upstream port inside the app network (default 8080). */
+  port?: number;
+  /**
+   * Host reachable FROM the gateway on the app network.
+   * Defaults to Docker container name `scad-run-{appId}` when omitted.
+   */
+  upstreamHost?: string;
 };
+
+export function upstreamTarget(app: ResolvedApp): { host: string; port: number } {
+  return {
+    host: app.upstreamHost ?? `scad-run-${app.appId}`,
+    port: app.port ?? 8080,
+  };
+}
 
 export type AppResolver = {
   resolve(host: string): Promise<ResolvedApp | null>;

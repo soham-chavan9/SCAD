@@ -5,7 +5,7 @@ import { ensureHttpEchoImage } from "./test-image.js";
 registerRuntimeConformance("docker", async () => {
   const imageRef = await ensureHttpEchoImage();
   return {
-    provider: new DockerRuntimeProvider(),
+    provider: new DockerRuntimeProvider({ gatewayContainerName: null }),
     imageRef,
     port: 8080,
   };
