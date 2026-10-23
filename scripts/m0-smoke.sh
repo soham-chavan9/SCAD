@@ -1,9 +1,35 @@
 #!/usr/bin/env bash
 # M0 exit smoke — browserless. Prints PASS/FAIL lines only; exit non-zero on any fail.
+#
+# Default path: no sudo / sysctl / iptables (works on macOS Docker Desktop).
+# Optional: --vm-only enables Linux VM bridge/iptables tweaks and REFUSES on macOS.
+#
+# Why some Linux VMs need --vm-only:
+#   Docker's bridge netfilter (bridge-nf-call-iptables=1) can send container↔container
+#   traffic on internal networks through iptables FORWARD/DOCKER-USER. Combined with
+#   drop policies, gateway↔app on scad-net-* fails even though Internal networks are
+#   correctly configured. Setting bridge-nf-call-iptables=0 and adding a DOCKER-USER
+#   ACCEPT for 172.16.0.0/12 restores ICC for smoke.
+# Without those tweaks on affected Linux hosts, smoke checks 3/5/6 (identity headers,
+# /__scad/*, login codes) FAIL because the gateway cannot reach the app. Isolation
+# check 4 may still PASS (false sense of security if ICC is broken for everyone).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+VM_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --vm-only) VM_ONLY=1 ;;
+    -h|--help)
+      echo "Usage: scripts/m0-smoke.sh [--vm-only]" >&2
+      echo "  default   no sudo; macOS Docker Desktop safe" >&2
+      echo "  --vm-only Linux only; may sudo sysctl/iptables for bridge ICC" >&2
+      exit 0
+      ;;
+  esac
+done
 
 # Silence everything except PASS/FAIL on fd 3
 exec 3>&1
@@ -29,12 +55,15 @@ cleanup() {
   CLEANUP_DONE=1
   [[ -n "$CP_PID" ]] && kill "$CP_PID" 2>/dev/null || true
   [[ -n "$BUILDER_PID" ]] && kill "$BUILDER_PID" 2>/dev/null || true
-  for pid in $(pgrep -f 'loader.mjs src/server.ts' || true); do
-    cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
-    case "$cwd" in
-      */apps/control-plane|*/apps/builder) kill -9 "$pid" 2>/dev/null || true ;;
-    esac
-  done
+  # Linux: kill leftover tsx servers by cwd. macOS has no /proc/<pid>/cwd.
+  if [[ -d /proc ]]; then
+    for pid in $(pgrep -f 'loader.mjs src/server.ts' 2>/dev/null || true); do
+      cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
+      case "$cwd" in
+        */apps/control-plane|*/apps/builder) kill -9 "$pid" 2>/dev/null || true ;;
+      esac
+    done
+  fi
   wait "$CP_PID" 2>/dev/null || true
   wait "$BUILDER_PID" 2>/dev/null || true
 }
@@ -89,11 +118,24 @@ out.write_text("\n".join(lines) + "\n")
 PY
     bash "$ROOT/scripts/fix-env-jwt-key.sh" >/dev/null
   fi
-  if ! grep -q '^GATEWAY_FAKE_AUTH=' "$ROOT/.env"; then
-    echo 'GATEWAY_FAKE_AUTH=1' >>"$ROOT/.env"
-  else
-    sed -i 's/^GATEWAY_FAKE_AUTH=.*/GATEWAY_FAKE_AUTH=1/' "$ROOT/.env"
-  fi
+  # Portable in-place set of GATEWAY_FAKE_AUTH (macOS sed needs '' after -i).
+  python3 - "$ROOT/.env" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+lines = p.read_text().splitlines()
+found = False
+out = []
+for line in lines:
+    if line.startswith("GATEWAY_FAKE_AUTH="):
+        out.append("GATEWAY_FAKE_AUTH=1")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append("GATEWAY_FAKE_AUTH=1")
+p.write_text("\n".join(out) + "\n")
+PY
   load_dotenv
 }
 
@@ -112,6 +154,14 @@ host_of_url() {
 }
 
 ensure_docker_icc() {
+  # Only under --vm-only (Linux). Default path never uses sudo (macOS Docker Desktop).
+  if [[ "$VM_ONLY" -ne 1 ]]; then
+    return 0
+  fi
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "FAIL: --vm-only refuses on macOS (no sudo/sysctl/iptables)" >&3
+    exit 1
+  fi
   # Bridge traffic must not be filtered by iptables or internal app nets break
   # (gateway↔app on scad-net-*). See net.bridge.bridge-nf-call-iptables.
   if [[ -w /proc/sys/net/bridge/bridge-nf-call-iptables ]]; then
@@ -133,15 +183,16 @@ start_stack() {
   mkdir -p "$SMOKE_DIR/data" "$SMOKE_DIR/logs"
   rm -f "$SMOKE_DIR/hello.url" "$SMOKE_DIR/hello.host" "$SMOKE_DIR/echo.url" "$SMOKE_DIR/echo.host" "$COOKIE_JAR"
 
-  # Stop leftover CP/builder by cwd (tsx child argv is just src/server.ts)
-  for pid in $(pgrep -f 'loader.mjs src/server.ts' || true); do
-    cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
-    case "$cwd" in
-      */apps/control-plane|*/apps/builder) kill -9 "$pid" 2>/dev/null || true ;;
-    esac
-  done
-  pkill -9 -f '/apps/control-plane/.*/tsx/.*/cli.mjs src/server.ts' 2>/dev/null || true
-  pkill -9 -f '/apps/builder/.*/tsx/.*/cli.mjs src/server.ts' 2>/dev/null || true
+  if [[ -d /proc ]]; then
+    for pid in $(pgrep -f 'loader.mjs src/server.ts' 2>/dev/null || true); do
+      cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
+      case "$cwd" in
+        */apps/control-plane|*/apps/builder) kill -9 "$pid" 2>/dev/null || true ;;
+      esac
+    done
+  fi
+  pkill -9 -f 'apps/control-plane' 2>/dev/null || true
+  pkill -9 -f 'apps/builder' 2>/dev/null || true
   sleep 2
 
   ensure_docker_icc

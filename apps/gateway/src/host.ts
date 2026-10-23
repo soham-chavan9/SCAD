@@ -1,3 +1,5 @@
+import { isHandle, isSlug } from "@scad/shared";
+
 export type ParsedHost =
   | { kind: "auth" }
   | { kind: "app"; slug: string; ownerHandle: string }
@@ -24,6 +26,10 @@ export function parseHost(hostHeader: string | undefined, baseDomain: string): P
   }
   const [slug, ownerHandle] = parts;
   if (!slug || !ownerHandle) {
+    return { kind: "unknown" };
+  }
+  // INV11: never accept unvalidated slug/handle into hostname routing.
+  if (!isSlug(slug) || !isHandle(ownerHandle)) {
     return { kind: "unknown" };
   }
   return { kind: "app", slug, ownerHandle };

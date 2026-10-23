@@ -67,9 +67,9 @@ export class DockerRuntimeProvider implements RuntimeProvider {
       Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
       Labels: labels,
       ExposedPorts: { [`${spec.port}/tcp`]: {} },
-      // Override command when manifest provides `start`
-      ...(spec.start !== undefined
-        ? { Entrypoint: ["/bin/sh", "-c"], Cmd: [spec.start] }
+      // manifest.start as argv — never `/bin/sh -c` (no shell interpolation).
+      ...(spec.start !== undefined && spec.start.length > 0
+        ? { Entrypoint: spec.start, Cmd: [] }
         : {}),
       HostConfig: {
         ReadonlyRootfs: true,
@@ -79,6 +79,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         CpuShares: spec.limits.cpuShares,
         PidsLimit: spec.limits.pids,
         NetworkMode: net,
+        // No PortBindings / PublishAllPorts — apps are reachability-gated via internal nets.
         Binds: [`${vol}:/data:rw`],
         Tmpfs: {
           "/tmp": "rw,noexec,nosuid,size=64m",

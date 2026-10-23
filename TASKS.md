@@ -51,6 +51,30 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: run gateway as a container; when an app is deployed the driver connects the gateway container to that app's network; proxy HTTP and WebSocket; strip then inject `X-SCAD-*` headers (§10); JWKS endpoint.
   - Done when: echo app shows verified email; request with forged `X-SCAD-User-Email` is overridden (INV3); JWT verifies against JWKS and fails with wrong audience; apps remain unreachable from the host and from each other.
 
+- [x] **T0.8 Hardening (smoke safety, fake-auth gate, safe tar, INV tests)**
+  - Depends: T0.7. Files: `scripts/m0-smoke.sh`, `apps/gateway`, `apps/builder`, `apps/control-plane`, `packages/runtime-docker`, `packages/shared`, `docs/t0.8-docker-build-exposure.md`.
+  - Steps:
+    - Audit PR #10 changes outside the smoke script; document file + why.
+    - Smoke: no sudo/sysctl/iptables on the default path; `--vm-only` may apply Linux bridge-nf / DOCKER-USER tweaks and **refuses on macOS**. Document why VM needed `bridge-nf-call-iptables=0` + DOCKER-USER ACCEPT, which checks FAIL without them, and isolation meaning. Smoke must run on macOS Docker Desktop without sudo.
+    - `GATEWAY_FAKE_AUTH`: gateway **refuses to start** if on and `BASE_DOMAIN` is not localhost-based; off in `.env.example`; unit test.
+    - Safe tarball extract to a fresh temp dir only; reject absolute/`..`/device/FIFO/hardlink/symlink-outside-root; limits on total size, file count, per-file size; skip `node_modules` and `.git`; one malicious-tar test per case with structured errors.
+    - Docker build exposure: **report only** (network mode, user, build-args, mounts, daemon; probe reachability from a `RUN` step). Do not change build network without asking.
+    - Real (not mocked) INV1 / INV2 / INV6 / INV11 tests; `manifest.start` passed as argv array (never host-shell interpolated).
+    - `/internal/resolve` returns manifest port (not hardcoded 8080).
+  - TODO (before gateway is reachable outside localhost): gate GitHub sign-in with an invite allowlist, and fix `OPERATOR_EMAILS` scope (who may sign in vs who is operator).
+  - Done when:
+    - [x] PR #10 audit listed in PR body / internal note
+    - [x] Smoke default path has no sudo; `--vm-only` refuses on macOS
+    - [x] `GATEWAY_FAKE_AUTH` localhost guard + test; off in `.env.example`
+    - [x] Safe extract + malicious tar tests
+    - [x] Docker build exposure report published (no network change)
+    - [x] INV1 / INV2 / INV6 / INV11 tests green
+    - [x] `manifest.start` as argv (file+line: `packages/runtime-docker/src/docker-provider.ts:72`)
+    - [x] `/internal/resolve` uses manifest port + test
+    - [x] `pnpm lint && pnpm typecheck && pnpm test` green
+    - [ ] Full `m0-smoke.sh` on macOS Docker Desktop (not run here; default path is sudo-free)
+    - [ ] Human GitHub second-account 403 browser check
+
 **M0 exit:** publish a toy app, open it in the browser behind GitHub login, with a second GitHub account denied.
 
 ---

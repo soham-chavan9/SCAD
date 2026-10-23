@@ -4,7 +4,11 @@ export type DeploySpec = {
   appId: string;
   imageRef: string;
   port: number;
-  start?: string;
+  /**
+   * Container argv (not a host shell string). Passed as Docker Cmd/Entrypoint
+   * array — never interpolated into `/bin/sh -c` on the host or in the runtime.
+   */
+  start?: string[];
   env: Record<string, string>;
   egressAllow: string[];
   limits: {
