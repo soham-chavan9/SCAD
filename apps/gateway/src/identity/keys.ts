@@ -38,8 +38,8 @@ export async function loadIdentityKeysFromPemPair(
   publicKeyPem: string,
   kid = "scad-ed25519-1",
 ): Promise<IdentityKeyMaterial> {
-  const privateKey = await importPrivateKeyPem(privateKeyPem);
-  const publicKey = await importPublicKeyPem(publicKeyPem);
+  const privateKey = await importPrivateKeyPem(privateKeyPem, "JWT_PRIVATE_KEY");
+  const publicKey = await importPublicKeyPem(publicKeyPem, "JWT_PUBLIC_KEY");
   return toMaterial(privateKey, publicKey, kid);
 }
 

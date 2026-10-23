@@ -36,6 +36,7 @@ export {
   IDENTITY_JWT_TTL_SECONDS,
   importPrivateKeyPem,
   importPublicKeyPem,
+  normalizePemFromEnv,
   signIdentityJwt,
   verifyIdentityJwt,
   type IdentityClaims,
