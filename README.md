@@ -49,6 +49,7 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `pnpm typecheck`     | Strict `tsc -b`        |
 | `pnpm test`          | Vitest unit tests      |
 | `pnpm format`        | Prettier write         |
+| `pnpm db:migrate`    | Apply control-plane Drizzle migrations |
 | `docker compose up -d` | Postgres + Mailpit   |
 
-`pnpm dev`, `pnpm db:migrate`, `pnpm test:e2e`, and `pnpm test:adversarial` are wired for later milestones.
+Set `DATABASE_URL` (see `.env.example`) before migrate/tests. `pnpm dev`, `pnpm test:e2e`, and `pnpm test:adversarial` land in later milestones.

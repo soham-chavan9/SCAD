@@ -26,7 +26,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Steps: zod schemas for manifest (§11), error envelope and codes (§8), slug/handle validators, JWT sign/verify helpers (EdDSA, `jose`), id helpers.
   - Done when: unit tests cover valid/invalid manifests (bad slug, memory over cap, bad port), error envelope shape, JWT round-trip, wrong-audience and expired rejection.
 
-- [ ] **T0.3 Control plane skeleton and database**
+- [x] **T0.3 Control plane skeleton and database**
   - Depends: T0.2. Files: `apps/control-plane`, Drizzle schema and migrations for `users, apps, releases, machines, pats, audit_events` (full model in §7 can land later).
   - Steps: Fastify app, `/healthz`, PAT auth plugin (hashed tokens), `POST /v1/apps` internal create used by tests, structured error handler returning §8 envelope.
   - Done when: `pnpm db:migrate` works on a fresh DB; request without token returns `401 UNAUTHENTICATED` envelope; valid PAT creates an app row; integration test uses a real Postgres.
