@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "apps/control-plane" },
+    { "path": "apps/gateway" },
+    { "path": "apps/builder" },
+    { "path": "apps/egress-proxy" },
+    { "path": "packages/shared" },
+    { "path": "packages/cli" },
+    { "path": "packages/mcp-server" },
+    { "path": "packages/api-client" },
+    { "path": "packages/runtime-docker" },
+    { "path": "packages/runtime-fly" },
+    { "path": "packages/runtime-conformance" },
+    { "path": "tests/e2e" },
+    { "path": "tests/adversarial" }
+  ]
+}
