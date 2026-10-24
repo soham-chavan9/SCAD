@@ -14,4 +14,13 @@ describe("safeLocalReturnPath", () => {
     expect(safeLocalReturnPath("/%2f%2fevil.com")).toBeNull();
     expect(safeLocalReturnPath("https://evil.example/phish")).toBeNull();
   });
+
+  it("rejects /\\evil.com, \\\\evil.com, https, javascript:, and %2f%2fevil.com", () => {
+    expect(safeLocalReturnPath("/\\evil.com")).toBeNull();
+    expect(safeLocalReturnPath("\\\\evil.com")).toBeNull();
+    expect(safeLocalReturnPath("https://evil.com")).toBeNull();
+    expect(safeLocalReturnPath("javascript:")).toBeNull();
+    expect(safeLocalReturnPath("javascript:alert(1)")).toBeNull();
+    expect(safeLocalReturnPath("%2f%2fevil.com")).toBeNull();
+  });
 });

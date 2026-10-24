@@ -1,5 +1,7 @@
 # SCAD: Agent Brief
 
+**Branch model:** Work branches start from `dev`. Open PRs into `dev`. Humans only merge `dev` → `main` (release). Do not push directly to `dev` or `main`.
+
 Read this file fully before writing any code. `TASKS.md` is the ordered build plan. This file is the source of truth for decisions, contracts, and rules. If a task conflicts with this file, stop and ask the human.
 
 ---
