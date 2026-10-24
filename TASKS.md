@@ -72,8 +72,14 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
     - [x] `manifest.start` as argv (file+line: `packages/runtime-docker/src/docker-provider.ts:72`)
     - [x] `/internal/resolve` uses manifest port + test
     - [x] `pnpm lint && pnpm typecheck && pnpm test` green
-    - [ ] Full `m0-smoke.sh` on macOS Docker Desktop (not run here; default path is sudo-free)
+    - [x] Full `m0-smoke.sh` on macOS Docker Desktop (sudo-free, no `--vm-only`; checks 1–7 passed on this Mac)
     - [ ] Human GitHub second-account 403 browser check
+
+- [ ] **T0.9 Build isolation (INV8)** — NOT STARTED
+  - Depends: T0.5. Do not start M1, and do not let a friend publish, until this is closed.
+  - A `RUN` step in an uploaded Dockerfile can reach Postgres, the control plane, Mailpit, and the host. The builder process also sees platform secrets because it runs on the host. Report and fix are still open. Do not change the build network without asking.
+
+**Warning:** GitHub sign-in creates an account for anyone with a GitHub account. `OPERATOR_EMAILS` gates only device-code approval (`POST /v1/auth/device/approve`), not GitHub sign-in. Fix that before the gateway is reachable outside localhost.
 
 **M0 exit:** publish a toy app, open it in the browser behind GitHub login, with a second GitHub account denied.
 

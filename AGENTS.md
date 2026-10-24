@@ -62,7 +62,7 @@ export interface DeploySpec {
   appId: string;
   imageRef: string;
   port: number;
-  start?: string;
+  start?: string[];          // argv, never a host shell string
   env: Record<string, string>;      // decrypted just-in-time
   egressAllow: string[];            // approved domains
   limits: { memoryMb: number; cpuShares: number; diskGb: number; pids: number };
@@ -110,11 +110,11 @@ docs/                  this brief, tasks, threat model, runbook
 
 ## 6. Local development environment
 
-- `docker compose up -d` starts Postgres, Mailpit, gateway, egress-proxy. Control plane and builder run on the host with `pnpm dev` (they need the Docker socket).
+- `docker compose up -d` starts Postgres, Mailpit, and the gateway. The egress proxy is not in Compose until T2.1. Control plane and builder run on the host (`pnpm --filter @scad/control-plane start` and `pnpm --filter @scad/builder start`); they need the Docker socket.
 - Hostnames: `*.localhost` resolves to loopback in Chrome and Firefox. Safari may not; fallback is a local dnsmasq or `/etc/hosts` entries. Document this in README.
 - Ports: gateway `8080`, control plane `4000`, Mailpit UI `8025`, Postgres `5432`.
 - Auth host: `http://auth.localhost:8080`. App host: `http://{slug}.{owner}.localhost:8080`.
-- Required env (`.env.example` must list all): `DATABASE_URL`, `BASE_DOMAIN`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SMTP_URL`, `MASTER_KEY` (32-byte base64), `JWT_PRIVATE_KEY` (Ed25519 PEM), `OPERATOR_EMAILS` (comma list).
+- Required env (`.env.example` must list all): `DATABASE_URL`, `BASE_DOMAIN`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SMTP_URL`, `MASTER_KEY` (32-byte base64), `JWT_PRIVATE_KEY` (Ed25519 PEM), `JWT_PUBLIC_KEY`, `OPERATOR_EMAILS` (comma list; device-login approval only), `INTERNAL_SECRET`, `INTERNAL_TOKEN`, `GATEWAY_FAKE_AUTH` (must be unset or `0` except for localhost smoke).
 - Common commands: `pnpm install`, `pnpm dev`, `pnpm test`, `pnpm test:e2e`, `pnpm test:adversarial`, `pnpm lint`, `pnpm typecheck`, `pnpm db:migrate`.
 
 ## 7. Domain model
@@ -212,7 +212,7 @@ JWT claims: `iss` (auth host), `aud` (app id), `sub` (user id), `email`, `name`,
 }
 ```
 
-Defaults and caps: port 8080; memory 512 MB (cap 1024); disk 1 GB (cap 5); 1 CPU share; 128 pids. Slugs: `[a-z0-9-]{3,40}`.
+Defaults and caps: port 8080; memory 512 MB (cap 1024); disk 1 GB (cap 5); `cpuShares` 1024 (Docker's weight for one CPU); 128 pids. Slugs: `[a-z0-9-]{3,40}`. `scad.json` `start` is a string; the builder splits it into the `DeploySpec.start` argv array.
 
 ## 12. Security invariants (each MUST have an automated test)
 
@@ -242,7 +242,7 @@ Defaults and caps: port 8080; memory 512 MB (cap 1024); disk 1 GB (cap 5); 1 CPU
 
 ## 14. Defaults you may change only with human approval
 
-App limits: 10 live apps per builder, 100 MB upload, 10-minute build timeout, 10-minute idle stop, 15-second wake budget, 7-day log retention, 1 GB volume. Operator allowlist of who may sign in at all (`OPERATOR_EMAILS` plus an invited-emails table).
+App limits: 10 live apps per builder, 100 MB upload, 10-minute build timeout, 10-minute idle stop, 15-second wake budget, 7-day log retention, 1 GB volume. `OPERATOR_EMAILS` gates device-code approval (`scad login`) only. GitHub sign-in creates an account for any GitHub user with a verified email. That must be fixed (invite allowlist) before the gateway is reachable outside localhost. No friend should publish until T0.9 (build isolation) is closed.
 
 ## 15. Decisions reserved for the human (ask, do not guess)
 
