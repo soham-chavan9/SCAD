@@ -12,6 +12,5 @@ coverage/
 .turbo/
 *.log
 .pnpm-store/
-
-.scad-smoke/
-.scad-data/
+__pycache__/
+scripts/__pycache__/

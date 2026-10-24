@@ -50,9 +50,11 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `pnpm test`          | Vitest (needs Docker + Postgres) |
 | `pnpm format`        | Prettier write         |
 | `pnpm db:migrate`    | Apply control-plane Drizzle migrations |
-| `docker compose up -d` | Postgres + Mailpit   |
+| `docker compose up -d` | Postgres, Mailpit, gateway |
 | `pnpm exec tsx packages/cli/src/bin.ts login --approve-email you@example.com` | Device login (local) |
 | `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app |
 | `bash scripts/m0-smoke.sh` | Browserless M0 exit checks (PASS/FAIL); no sudo (macOS Docker Desktop OK). Linux VMs with broken bridge ICC: `--vm-only` (refuses on macOS). |
 
-Set `DATABASE_URL` and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose (`GATEWAY_FAKE_AUTH=1` for browserless smoke).
+Set `DATABASE_URL`, `INTERNAL_TOKEN`, `INTERNAL_SECRET`, and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose. Leave `GATEWAY_FAKE_AUTH` unset or `0` for real GitHub sign-in. `scripts/m0-smoke.sh` turns fake auth on for its own process only.
+
+**Do not expose this off localhost yet.** GitHub sign-in creates an account for any GitHub user. `OPERATOR_EMAILS` only decides who may approve `scad login`. A `RUN` instruction in a published Dockerfile can still reach Postgres, the control plane, Mailpit, and the host (T0.9, not started). No friend should publish until that is closed.
