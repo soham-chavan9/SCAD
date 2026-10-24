@@ -25,4 +25,20 @@ describe("assertFakeAuthAllowed", () => {
       assertFakeAuthAllowed({ fakeAuth: true, baseDomain: "apps.prod.example" }),
     ).toThrow(/localhost-based/);
   });
+
+  it("refuses fake auth when localhost is only a substring", () => {
+    for (const baseDomain of [
+      "localhost.evil.com",
+      "evil.localhost.attacker.com",
+      "app.localhost.example.com",
+      "notlocalhost",
+    ]) {
+      expect(() => assertFakeAuthAllowed({ fakeAuth: true, baseDomain })).toThrow(
+        /GATEWAY_FAKE_AUTH/,
+      );
+    }
+    expect(() =>
+      assertFakeAuthAllowed({ fakeAuth: true, baseDomain: "foo.localhost:8080" }),
+    ).not.toThrow();
+  });
 });

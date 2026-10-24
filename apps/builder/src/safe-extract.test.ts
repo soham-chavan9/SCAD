@@ -70,6 +70,22 @@ describe("safeExtractTarball", () => {
     await expect(readFile(marker)).rejects.toThrow();
   });
 
+  it("rejects a .. segment even when path.normalize collapses it", async () => {
+    const { dest, outside, root } = await freshDirs();
+    const tarball = join(root, "collapse.tgz");
+    await writeMaliciousTar(tarball, [{ name: "foo/..", content: "dir-escape", type: "file" }]);
+
+    await expect(safeExtractTarball({ tarballPath: tarball, destDir: dest })).rejects.toSatisfy(
+      (err: unknown) => {
+        expect(err).toBeInstanceOf(SafeExtractError);
+        expect((err as SafeExtractError).envelope.code).toBe("VALIDATION_FAILED");
+        return true;
+      },
+    );
+    await expect(readFile(join(outside, "dir-escape"))).rejects.toThrow();
+    await expect(readFile(join(root, "dir-escape"))).rejects.toThrow();
+  });
+
   it("rejects .. path traversal with structured error", async () => {
     const { dest, outside, root } = await freshDirs();
     const tarball = join(root, "dotdot.tgz");

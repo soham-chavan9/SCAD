@@ -43,6 +43,12 @@ export function authHost(baseDomain: string): string {
   return `auth.${baseDomain}`;
 }
 
+/** True only for `localhost` or `*.localhost`, optional numeric port. */
 export function isLocalhostBase(baseDomain: string): boolean {
-  return baseDomain.startsWith("localhost") || baseDomain.includes(".localhost");
+  const host = baseDomain
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/\.$/, "");
+  return host === "localhost" || host.endsWith(".localhost");
 }

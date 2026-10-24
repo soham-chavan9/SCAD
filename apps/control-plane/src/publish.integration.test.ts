@@ -10,6 +10,7 @@ import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { assertTruncateAllowed } from "./db/test-db.js";
 import { machines, releases } from "./db/schema.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
@@ -38,6 +39,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
 
   beforeAll(async () => {
     if (!databaseUrl) throw new Error("DATABASE_URL required");
+    assertTruncateAllowed(databaseUrl);
     dataDir = await mkdtemp(join(tmpdir(), "scad-data-"));
     configPath = join(dataDir, "config.json");
     await runMigrations(databaseUrl);

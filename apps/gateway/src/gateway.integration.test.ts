@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { sql } from "drizzle-orm";
 import {
+  assertTruncateAllowed,
   buildApp as buildControlPlane,
   createDb,
   runMigrations,
@@ -38,6 +39,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
 
   beforeAll(async () => {
     if (!databaseUrl) throw new Error("DATABASE_URL required");
+    assertTruncateAllowed(databaseUrl);
     await runMigrations(databaseUrl);
     dbBundle = createDb(databaseUrl);
 
@@ -107,6 +109,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
     controlPlane = await buildControlPlane({
       db: dbBundle.db,
       internalSecret: INTERNAL_SECRET,
+      internalToken: "test-internal-token",
       baseDomain: BASE_DOMAIN,
     });
     await controlPlane.ready();
@@ -354,6 +357,61 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
     await expect(
       consumeLoginCode(dbBundle.db, { code: expiredCode, appHost: ownerHost }),
     ).rejects.toMatchObject({ reason: "expired" });
+  });
+
+  it("rejects protocol-relative and off-host return_to", async () => {
+    const collapsed = await gateway.inject({
+      method: "GET",
+      url: `/login?return_to=${encodeURIComponent(`http://${ownerHost}//evil.com`)}`,
+      headers: { host: auth },
+    });
+    expect(collapsed.statusCode).toBe(400);
+
+    const external = await gateway.inject({
+      method: "GET",
+      url: `/login?return_to=${encodeURIComponent("https://evil.example/phish")}`,
+      headers: { host: auth },
+    });
+    expect(external.statusCode).toBe(400);
+  });
+
+  it("callback rejects a protocol-relative return_to", async () => {
+    const code = await issueLoginCode(dbBundle.db, {
+      userId: ownerId,
+      appHost: ownerHost,
+    });
+    const res = await gateway.inject({
+      method: "GET",
+      url: `/__scad/callback?code=${encodeURIComponent(code)}&return_to=${encodeURIComponent("//evil.com")}`,
+      headers: { host: ownerHost },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.headers.location ?? "")).not.toContain("evil.com");
+  });
+
+  it("github callback without the state cookie is rejected", async () => {
+    const profile = {
+      githubId: "1009",
+      login: "eve",
+      email: "eve@example.com",
+      name: "Eve",
+    };
+    const code = identity.issueCodeFor(profile);
+    const loginRes = await gateway.inject({
+      method: "GET",
+      url: `/login?return_to=${encodeURIComponent(`http://${ownerHost}/`)}`,
+      headers: { host: auth },
+    });
+    expect(loginRes.statusCode).toBe(302);
+    const state = new URL(loginRes.headers.location!).searchParams.get("state");
+    expect(state).toBeTruthy();
+    const cb = await gateway.inject({
+      method: "GET",
+      url: `/oauth/github/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state!)}`,
+      headers: { host: auth },
+    });
+    expect(cb.statusCode).toBe(400);
+    expect(cb.headers.location ?? "").toBe("");
   });
 });
 

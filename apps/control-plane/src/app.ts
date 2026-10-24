@@ -53,8 +53,10 @@ export async function buildApp(opts: BuildAppOptions) {
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
   );
-  const internalToken =
-    opts.internalToken ?? process.env["INTERNAL_TOKEN"] ?? "dev-internal-token";
+  const internalToken = opts.internalToken ?? process.env["INTERNAL_TOKEN"];
+  if (!internalToken) {
+    throw new Error("INTERNAL_TOKEN is required");
+  }
 
   app.setErrorHandler(errorHandler);
 

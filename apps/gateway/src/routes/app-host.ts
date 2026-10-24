@@ -4,6 +4,7 @@ import { LoginCodeError, consumeLoginCode } from "../auth/login-codes.js";
 import { createSession, loadSessionUser } from "../auth/sessions.js";
 import type { GatewayUser } from "../auth/users.js";
 import { SESSION_COOKIE, setSessionCookie } from "../cookies.js";
+import { safeLocalReturnPath } from "../return-path.js";
 import { authHost } from "../host.js";
 import { buildUpstreamHeaders } from "../identity/headers.js";
 import type { IdentityKeyMaterial } from "../identity/keys.js";
@@ -29,7 +30,8 @@ function requestHost(request: FastifyRequest): string {
 function loginRedirectUrl(baseDomain: string, request: FastifyRequest): string {
   const host = requestHost(request);
   const proto = baseDomain.startsWith("localhost") ? "http" : "https";
-  const returnTo = `${proto}://${host}${request.url}`;
+  const path = safeLocalReturnPath(request.url) ?? "/";
+  const returnTo = `${proto}://${host}${path}`;
   const url = new URL(`${proto}://${authHost(baseDomain)}/login`);
   url.searchParams.set("return_to", returnTo);
   return url.toString();
@@ -95,7 +97,13 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
       });
       setSessionCookie(reply, session.id, opts.baseDomain, session.expiresAt);
 
-      const dest = query.return_to && query.return_to.startsWith("/") ? query.return_to : "/";
+      const dest = safeLocalReturnPath(query.return_to);
+      if (!dest) {
+        return reply
+          .status(400)
+          .type("text/html")
+          .send(badCallbackPage("Invalid return_to"));
+      }
       return reply.redirect(dest);
     } catch (err) {
       if (err instanceof LoginCodeError) {

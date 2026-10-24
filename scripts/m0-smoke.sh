@@ -87,7 +87,7 @@ vals = {
     "MASTER_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
     "INTERNAL_SECRET": secrets.token_hex(24),
     "INTERNAL_TOKEN": secrets.token_hex(24),
-    "GATEWAY_FAKE_AUTH": "1",
+    "GATEWAY_FAKE_AUTH": "0",
     "GITHUB_CLIENT_ID": "",
     "GITHUB_CLIENT_SECRET": "",
     "OPERATOR_EMAILS": "",
@@ -118,25 +118,15 @@ out.write_text("\n".join(lines) + "\n")
 PY
     bash "$ROOT/scripts/fix-env-jwt-key.sh" >/dev/null
   fi
-  # Portable in-place set of GATEWAY_FAKE_AUTH (macOS sed needs '' after -i).
-  python3 - "$ROOT/.env" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-lines = p.read_text().splitlines()
-found = False
-out = []
-for line in lines:
-    if line.startswith("GATEWAY_FAKE_AUTH="):
-        out.append("GATEWAY_FAKE_AUTH=1")
-        found = True
-    else:
-        out.append(line)
-if not found:
-    out.append("GATEWAY_FAKE_AUTH=1")
-p.write_text("\n".join(out) + "\n")
-PY
   load_dotenv
+  # Process-only. Do not write this into .env; a later real-auth restart must stay off.
+  export GATEWAY_FAKE_AUTH=1
+  if [[ -z "${OPERATOR_EMAILS//[[:space:]]/}" ]]; then
+    export OPERATOR_EMAILS="$SMOKE_EMAIL"
+  fi
+  # First allowlisted address. Never printed (PASS/FAIL lines only).
+  APPROVE_EMAIL="${OPERATOR_EMAILS%%,*}"
+  APPROVE_EMAIL="${APPROVE_EMAIL//[[:space:]]/}"
 }
 
 wait_http() {
@@ -248,7 +238,7 @@ check_publish() {
   rm -f "$CONFIG_PATH"
   mkdir -p "$(dirname "$CONFIG_PATH")"
 
-  if ! scad login --api-url "${SCAD_API_URL:-http://127.0.0.1:4000}" --approve-email "$SMOKE_EMAIL" >/tmp/m0-login.out 2>&1; then
+  if ! scad login --api-url "${SCAD_API_URL:-http://127.0.0.1:4000}" --approve-email "$APPROVE_EMAIL" >/tmp/m0-login.out 2>&1; then
     fail "1 publish hello-node"
     return
   fi
@@ -310,7 +300,7 @@ check_forged_identity() {
   echo "$url" >"$SMOKE_DIR/echo.url"
   echo "$host" >"$SMOKE_DIR/echo.host"
 
-  code="$(issue_code "$SMOKE_EMAIL" "$host" 2>/tmp/m0-issue-code.err || true)"
+  code="$(issue_code "$APPROVE_EMAIL" "$host" 2>/tmp/m0-issue-code.err || true)"
   code="$(echo "$code" | tr -d '[:space:]')"
   if [[ -z "$code" ]]; then
     fail "3 forged X-SCAD identity ignored"
@@ -330,7 +320,7 @@ check_forged_identity() {
     "http://127.0.0.1:8080/")"
 
   email="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("email") or "")' <<<"$body" 2>/dev/null || true)"
-  if [[ "$email" == "$SMOKE_EMAIL" ]]; then
+  if [[ "$email" == "$APPROVE_EMAIL" ]]; then
     pass "3 forged X-SCAD identity ignored"
   else
     fail "3 forged X-SCAD identity ignored"
@@ -414,7 +404,7 @@ check_login_codes() {
     return
   fi
 
-  code="$(issue_code "$SMOKE_EMAIL" "$host" || true)"
+  code="$(issue_code "$APPROVE_EMAIL" "$host" || true)"
   if [[ -z "$code" ]]; then
     fail "6 reused/expired login code rejected"
     return
@@ -426,7 +416,7 @@ check_login_codes() {
     -H "Host: ${host}" \
     "http://127.0.0.1:8080/__scad/callback?code=${code}&return_to=/")"
 
-  exp_code="$(issue_code "$SMOKE_EMAIL" "$host" --expire || true)"
+  exp_code="$(issue_code "$APPROVE_EMAIL" "$host" --expire || true)"
   exp_status="$(curl -sS -o /dev/null -w '%{http_code}' \
     -H "Host: ${host}" \
     "http://127.0.0.1:8080/__scad/callback?code=${exp_code}&return_to=/" || true)"

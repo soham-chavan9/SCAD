@@ -4,7 +4,9 @@ import type { IdentityProvider } from "../auth/identity.js";
 import { createOauthState, takeOauthState } from "../auth/oauth-state.js";
 import { issueLoginCode } from "../auth/login-codes.js";
 import { upsertGithubUser } from "../auth/users.js";
+import { OAUTH_STATE_COOKIE, clearOauthStateCookie, oauthStateCookieOptions } from "../cookies.js";
 import { authHost } from "../host.js";
+import { safeLocalReturnPath } from "../return-path.js";
 import { jwksResponse } from "../identity/headers.js";
 import type { IdentityKeyMaterial } from "../identity/keys.js";
 import { badCallbackPage } from "../pages.js";
@@ -38,6 +40,9 @@ function parseReturnTo(
   if (!host.endsWith(`.${baseDomain}`) || host.startsWith("auth.")) {
     return null;
   }
+  if (!safeLocalReturnPath(url.pathname + url.search)) {
+    return null;
+  }
   return { appHost: host, returnToUrl: url };
 }
 
@@ -60,6 +65,7 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
       codeVerifier,
       redirectUri: redirectUri(),
     });
+    reply.setCookie(OAUTH_STATE_COOKIE, state, oauthStateCookieOptions(opts.baseDomain));
     return reply.redirect(url.toString());
   });
 
@@ -77,10 +83,18 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
   app.get("/oauth/github/callback", async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string };
     if (query.error) {
-      return reply.status(400).type("text/html").send(badCallbackPage(query.error));
+      return reply.status(400).type("text/html").send(badCallbackPage("GitHub sign-in was cancelled"));
     }
     if (!query.code || !query.state) {
       return reply.status(400).type("text/html").send(badCallbackPage("Missing code or state"));
+    }
+    const cookieState = request.cookies[OAUTH_STATE_COOKIE];
+    clearOauthStateCookie(reply, opts.baseDomain);
+    if (!cookieState || cookieState !== query.state) {
+      return reply
+        .status(400)
+        .type("text/html")
+        .send(badCallbackPage("Missing or mismatched OAuth state"));
     }
     return completeOauth(query.code, query.state, reply);
   });
@@ -117,6 +131,10 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
 
     const returnTo = new URL(oauth.returnTo);
     const appHostName = returnTo.host.toLowerCase();
+    const localReturn = safeLocalReturnPath(returnTo.pathname + returnTo.search);
+    if (!localReturn) {
+      return reply.status(400).type("text/html").send(badCallbackPage("Invalid return_to"));
+    }
     const loginCode = await issueLoginCode(opts.db, {
       userId: user.id,
       appHost: appHostName,
@@ -125,7 +143,7 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
     const proto = opts.baseDomain.startsWith("localhost") ? "http" : "https";
     const callback = new URL(`${proto}://${appHostName}/__scad/callback`);
     callback.searchParams.set("code", loginCode);
-    callback.searchParams.set("return_to", returnTo.pathname + returnTo.search);
+    callback.searchParams.set("return_to", localReturn);
 
     return reply.redirect(callback.toString());
   }

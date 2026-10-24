@@ -17,6 +17,12 @@ export type WsProxyOpts = {
   keys: IdentityKeyMaterial;
 };
 
+/** Platform paths must never be upgraded into the app container. */
+export function isPlatformUpgradePath(url: string | undefined): boolean {
+  const path = (url ?? "/").split("?")[0] ?? "/";
+  return path === "/__scad" || path.startsWith("/__scad/");
+}
+
 function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -48,6 +54,10 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
       try {
         const host = (req.headers.host ?? "").toLowerCase();
         if (host === authHost(opts.baseDomain) || !host.endsWith(`.${opts.baseDomain}`)) {
+          socket.destroy();
+          return;
+        }
+        if (isPlatformUpgradePath(req.url)) {
           socket.destroy();
           return;
         }
