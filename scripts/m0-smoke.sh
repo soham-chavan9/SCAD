@@ -70,10 +70,11 @@ cleanup() {
 trap cleanup EXIT
 
 load_dotenv() {
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
+  # Never `source` the env file. A space after `=` makes bash run the value
+  # as a command (exit 127) instead of assigning it.
+  local exports
+  exports="$(python3 "$ROOT/scripts/load-dotenv.py" "$ROOT/.env")" || return 1
+  eval "$exports"
 }
 
 ensure_env() {
@@ -195,10 +196,7 @@ start_stack() {
 
   docker compose -f "$ROOT/docker-compose.yml" up -d --build gateway
 
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
+  load_dotenv
 
   : >"$SMOKE_DIR/logs/control-plane.log"
   : >"$SMOKE_DIR/logs/builder.log"

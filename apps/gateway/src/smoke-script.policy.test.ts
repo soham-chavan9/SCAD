@@ -9,6 +9,8 @@ describe("m0-smoke.sh fake-auth persistence", () => {
     const src = readFileSync(join(root, "scripts/m0-smoke.sh"), "utf8");
     expect(src).not.toContain('out.append("GATEWAY_FAKE_AUTH=1")');
     expect(src).toContain("export GATEWAY_FAKE_AUTH=1");
+    expect(src).not.toContain('source "$ROOT/.env"');
+    expect(src).toContain("scripts/load-dotenv.py");
     expect(src).toContain('APPROVE_EMAIL="${OPERATOR_EMAILS%%,*}"');
     expect(src).not.toContain('echo "$APPROVE_EMAIL"');
     expect(src).toContain('if [[ "$VM_ONLY" -ne 1 ]]; then');
