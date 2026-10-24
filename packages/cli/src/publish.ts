@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { ScadApiError, ScadClient } from "@scad/api-client";
+import { assertFinalAppUrl, makeError } from "@scad/shared";
 import { loadConfig } from "./config.js";
 import { createPublishTarball } from "./tar-dir.js";
 
@@ -20,6 +21,22 @@ export type PublishResult = {
   releaseId: string;
   status: "ready";
 };
+
+function requireFinalUrl(url: string): string {
+  try {
+    return assertFinalAppUrl(url);
+  } catch {
+    throw new ScadApiError(
+      500,
+      makeError(
+        "INTERNAL",
+        "Could not determine the app host URL",
+        "Ensure BASE_DOMAIN is set and your account has a valid handle, then republish.",
+        {},
+      ),
+    );
+  }
+}
 
 export async function publishDir(opts: PublishOptions): Promise<PublishResult> {
   const dir = resolve(opts.dir);
@@ -42,17 +59,18 @@ export async function publishDir(opts: PublishOptions): Promise<PublishResult> {
 
   opts.onStatus?.(`Uploading ${tarball.byteLength} bytes as ${name}`);
   const published = await client.publish({ tarball, name });
+  const finalUrl = requireFinalUrl(published.url);
   opts.onStatus?.(`Build started: release ${published.release.id}`);
-  opts.onStatus?.(`URL (when ready): ${published.url}`);
+  opts.onStatus?.(`URL (when ready): ${finalUrl}`);
 
   const pollMs = opts.pollMs ?? 500;
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
     const release = await client.getRelease(published.release.id);
     if (release.status === "ready") {
-      opts.onStatus?.(published.url);
+      opts.onStatus?.(finalUrl);
       return {
-        url: published.url,
+        url: finalUrl,
         appId: published.app.id,
         releaseId: release.id,
         status: "ready",

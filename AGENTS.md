@@ -26,7 +26,7 @@ Analogy for the human reading along: an apartment building. Apps are apartments 
 | D6 | Per-app persistent storage is a volume at `/data` (SQLite recommended). Single instance per app. |
 | D7 | Outbound network from apps is **denied by default**; only manifest-declared, policy-approved domains via the egress proxy. |
 | D8 | Apps expire after 30 days unused (renews on view), 7-day warning, 14-day grace before delete. |
-| D9 | One app per hostname: `{slug}.{owner}.{BASE_DOMAIN}`. Local `BASE_DOMAIN=localhost:8080`. |
+| D9 | One app per hostname: `{slug}.{owner}.{BASE_DOMAIN}` (pattern, not a URL — e.g. `hello-node.<handle>.localhost:8080`). Local `BASE_DOMAIN=localhost:8080`. |
 | D10 | Name is SCAD. CLI binary is `scad`. Manifest is `scad.json`. Identity headers are `X-SCAD-*`. |
 
 ## 3. Non-goals (do not build)
@@ -113,7 +113,7 @@ docs/                  this brief, tasks, threat model, runbook
 - `docker compose up -d` starts Postgres, Mailpit, and the gateway. The egress proxy is not in Compose until T2.1. Control plane and builder run on the host (`pnpm --filter @scad/control-plane start` and `pnpm --filter @scad/builder start`); they need the Docker socket.
 - Hostnames: `*.localhost` resolves to loopback in Chrome and Firefox. Safari may not; fallback is a local dnsmasq or `/etc/hosts` entries. Document this in README.
 - Ports: gateway `8080`, control plane `4000`, Mailpit UI `8025`, Postgres `5432`.
-- Auth host: `http://auth.localhost:8080`. App host: `http://{slug}.{owner}.localhost:8080`.
+- Auth host: `http://auth.localhost:8080`. App host pattern (not a URL): `http://{slug}.{owner}.localhost:8080` — e.g. `http://hello-node.<handle>.localhost:8080`.
 - Required env (`.env.example` must list all): `DATABASE_URL`, `BASE_DOMAIN`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SMTP_URL`, `MASTER_KEY` (32-byte base64), `JWT_PRIVATE_KEY` (Ed25519 PEM), `JWT_PUBLIC_KEY`, `OPERATOR_EMAILS` (comma list; device-login approval only), `INTERNAL_SECRET`, `INTERNAL_TOKEN`, `GATEWAY_FAKE_AUTH` (must be unset or `0` except for localhost smoke).
 - Common commands: `pnpm install`, `pnpm dev`, `pnpm test`, `pnpm test:e2e`, `pnpm test:adversarial`, `pnpm lint`, `pnpm typecheck`, `pnpm db:migrate`.
 

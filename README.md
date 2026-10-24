@@ -28,7 +28,7 @@ Control plane listens on `4000` on the host; gateway runs as the `scad-gateway` 
 
 ### Hostnames
 
-Chrome and Firefox resolve `*.localhost` to loopback. Safari may not — use dnsmasq or `/etc/hosts` entries if needed. Auth will be at `http://auth.localhost:8080`; apps at `http://{slug}.{owner}.localhost:8080`.
+Chrome and Firefox resolve `*.localhost` to loopback. Safari may not — use dnsmasq or `/etc/hosts` entries if needed. Auth will be at `http://auth.localhost:8080`. App hosts follow the pattern (not a URL) `http://{slug}.{owner}.localhost:8080` — e.g. `http://hello-node.<handle>.localhost:8080`.
 
 ## Workspace layout
 
@@ -52,7 +52,8 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `pnpm db:migrate`    | Apply control-plane Drizzle migrations |
 | `docker compose up -d` | Postgres, Mailpit, gateway |
 | `pnpm exec tsx packages/cli/src/bin.ts login --approve-email you@example.com` | Device login (local) |
-| `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app |
+| `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app (prints a real clickable URL) |
+| `pnpm exec tsx packages/cli/src/bin.ts open hello-node` | Open a published app in the default browser |
 | `bash scripts/m0-smoke.sh` | Browserless M0 exit checks (PASS/FAIL); no sudo (macOS Docker Desktop OK). Linux VMs with broken bridge ICC: `--vm-only` (refuses on macOS). |
 
 Set `DATABASE_URL`, `INTERNAL_TOKEN`, `INTERNAL_SECRET`, and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose. Leave `GATEWAY_FAKE_AUTH` unset or `0` for real GitHub sign-in. `scripts/m0-smoke.sh` turns fake auth on for its own process only.
