@@ -46,6 +46,47 @@ describe("identity headers (INV3)", () => {
     ).rejects.toThrow();
   });
 
+  it("drops forged unknown X-SCAD-* headers (any case, duplicated)", async () => {
+    const keys = await generateEphemeralIdentityKeys();
+    const headers = await buildUpstreamHeaders({
+      incoming: {
+        "X-SCAD-Role": "admin",
+        "x-ScAd-Extra": ["one", "two"],
+        "X-scad-internal-secret": "leak-me",
+        "x-scad-user-email": "forged@evil.test",
+        accept: "application/json",
+      },
+      user: {
+        id: "11111111-1111-4111-8111-111111111111",
+        email: "alice@example.com",
+        handle: "alice",
+        displayName: "Alice",
+        status: "active",
+      },
+      appId: "22222222-2222-4222-8222-222222222222",
+      issuer: "http://auth.localhost:8080",
+      keys,
+    });
+
+    const injected = new Set([
+      "x-scad-user-email",
+      "x-scad-user-id",
+      "x-scad-user-name",
+      "x-scad-identity",
+    ]);
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase().startsWith("x-scad-")) {
+        expect(injected.has(key.toLowerCase())).toBe(true);
+      }
+    }
+    expect(headers["x-scad-role"]).toBeUndefined();
+    expect(headers["x-scad-extra"]).toBeUndefined();
+    expect(headers["x-scad-internal-secret"]).toBeUndefined();
+    expect(headers["X-SCAD-Role"]).toBeUndefined();
+    expect(headers["x-scad-user-email"]).toBe("alice@example.com");
+    expect(headers["accept"]).toBe("application/json");
+  });
+
   it("JWKS public key verifies the identity JWT", async () => {
     const keys = await generateEphemeralIdentityKeys("kid-1");
     const headers = await buildUpstreamHeaders({
