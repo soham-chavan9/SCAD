@@ -49,11 +49,24 @@ export async function generateEd25519KeyPair(): Promise<{
 }
 
 /**
- * Normalize a PEM from env: accept real multi-line PEMs or a single line with
- * literal `\n` escapes. Idempotent when newlines are already real.
+ * Normalize a PEM from env. Accepts real multi-line PEMs, a single line with
+ * literal `\n` escapes, or a compacted line with no separators.
+ * Idempotent when newlines are already real.
  */
 export function normalizePemFromEnv(value: string): string {
-  return value.replace(/\\n/g, "\n").trim();
+  let pem = value.replace(/\\n/g, "\n").trim();
+  if (!pem.includes("\n") && /-----BEGIN [^-]+-----/.test(pem)) {
+    pem = pem
+      .replace(/(-----BEGIN [^-]+-----)\s*/, "$1\n")
+      .replace(/\s*(-----END [^-]+-----)/, "\n$1");
+    const match = pem.match(/^(-----BEGIN [^-]+-----)\n([\s\S]*?)\n(-----END [^-]+-----)$/);
+    if (match) {
+      const body = (match[2] ?? "").replace(/\s+/g, "");
+      const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
+      pem = `${match[1]}\n${wrapped}\n${match[3]}`;
+    }
+  }
+  return pem.trim();
 }
 
 export async function importPrivateKeyPem(

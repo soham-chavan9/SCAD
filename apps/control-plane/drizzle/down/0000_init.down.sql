@@ -1,0 +1,17 @@
+ALTER TABLE "releases" DROP CONSTRAINT IF EXISTS "releases_app_id_apps_id_fk";
+ALTER TABLE "pats" DROP CONSTRAINT IF EXISTS "pats_user_id_users_id_fk";
+ALTER TABLE "machines" DROP CONSTRAINT IF EXISTS "machines_app_id_apps_id_fk";
+ALTER TABLE "audit_events" DROP CONSTRAINT IF EXISTS "audit_events_app_id_apps_id_fk";
+ALTER TABLE "audit_events" DROP CONSTRAINT IF EXISTS "audit_events_actor_id_users_id_fk";
+ALTER TABLE "apps" DROP CONSTRAINT IF EXISTS "apps_owner_id_users_id_fk";
+DROP TABLE IF EXISTS "releases";
+DROP TABLE IF EXISTS "pats";
+DROP TABLE IF EXISTS "machines";
+DROP TABLE IF EXISTS "audit_events";
+DROP TABLE IF EXISTS "apps";
+DROP TABLE IF EXISTS "users";
+DROP TYPE IF EXISTS "public"."user_status";
+DROP TYPE IF EXISTS "public"."user_role";
+DROP TYPE IF EXISTS "public"."release_status";
+DROP TYPE IF EXISTS "public"."app_visibility";
+DROP TYPE IF EXISTS "public"."app_status";

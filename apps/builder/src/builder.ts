@@ -7,9 +7,30 @@ import { dockerBuild } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
 
-/** Split manifest.start into argv — never passed through a host shell. */
+/**
+ * Docker relative CPU weight for one CPU. `1` is not one CPU; it starves the
+ * container whenever anything else on the host is runnable.
+ */
+export const DEFAULT_CPU_SHARES = 1024;
+
+/**
+ * Split manifest.start into argv. Quotes are grouping, not shell syntax:
+ * the result is passed as a Docker entrypoint array, never to `/bin/sh -c`.
+ */
 export function startToArgv(start: string): string[] {
-  return start.trim().split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  const re = /"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|\S+/g;
+  for (const match of start.trim().matchAll(re)) {
+    let token = match[0];
+    if (
+      (token.startsWith('"') && token.endsWith('"')) ||
+      (token.startsWith("'") && token.endsWith("'"))
+    ) {
+      token = token.slice(1, -1).replace(/\\(["'\\])/g, "$1");
+    }
+    if (token.length > 0) out.push(token);
+  }
+  return out;
 }
 
 export type ClaimedJob = {
@@ -124,7 +145,7 @@ export class Builder {
         egressAllow: manifest.egress,
         limits: {
           memoryMb: manifest.resources.memory_mb,
-          cpuShares: 1,
+          cpuShares: DEFAULT_CPU_SHARES,
           diskGb: manifest.resources.disk_gb,
           pids: 128,
         },

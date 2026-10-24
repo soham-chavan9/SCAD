@@ -100,6 +100,29 @@ describe("identity JWT (EdDSA)", () => {
     ).rejects.toThrow();
   });
 
+  it("imports compacted single-line PEMs with no separators", async () => {
+    const { privateKeyPem, publicKeyPem } = await generateEd25519KeyPair();
+    const privateCompact = privateKeyPem.replace(/\n/g, "");
+    const publicCompact = publicKeyPem.replace(/\n/g, "");
+    expect(privateCompact.includes("\n")).toBe(false);
+    expect(normalizePemFromEnv(privateCompact).includes("\n")).toBe(true);
+
+    const privateKey = await importPrivateKeyPem(privateCompact);
+    const publicKey = await importPublicKeyPem(publicCompact);
+    const token = await signIdentityJwt(privateKey, {
+      iss: "http://auth.localhost:8080",
+      aud: "app-1",
+      sub: "user-1",
+      email: "a@b.co",
+      name: "",
+    });
+    const verified = await verifyIdentityJwt(token, publicKey, {
+      issuer: "http://auth.localhost:8080",
+      audience: "app-1",
+    });
+    expect(verified.sub).toBe("user-1");
+  });
+
   it("names JWT_PRIVATE_KEY when PEM import fails (no value in message)", async () => {
     await expect(importPrivateKeyPem("not-a-pem")).rejects.toThrow(/JWT_PRIVATE_KEY/);
     await expect(importPrivateKeyPem("not-a-pem")).rejects.not.toThrow(/not-a-pem/);
