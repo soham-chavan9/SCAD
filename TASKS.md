@@ -72,7 +72,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
     - [x] `manifest.start` as argv (file+line: `packages/runtime-docker/src/docker-provider.ts:72`)
     - [x] `/internal/resolve` uses manifest port + test
     - [x] `pnpm lint && pnpm typecheck && pnpm test` green
-    - [ ] Full `m0-smoke.sh` on macOS Docker Desktop (not run here; default path is sudo-free)
+    - [x] Full `m0-smoke.sh` on macOS Docker Desktop (sudo-free, no `--vm-only`; checks 1–7 passed on this Mac)
     - [ ] Human GitHub second-account 403 browser check
 
 - [ ] **T0.9 Build isolation (INV8)** — NOT STARTED
