@@ -15,6 +15,18 @@ export type AuthDeviceRoutesOpts = {
   publicBaseUrl: string;
 };
 
+/** Empty allowlist denies everyone. The caller-supplied email must be listed. */
+export function emailMayApprove(operatorEmails: ReadonlySet<string>, email: string): boolean {
+  return operatorEmails.size > 0 && operatorEmails.has(email.toLowerCase());
+}
+
+/** Device approval is a local control-plane action. Ignore forwarded headers. */
+export function isLoopbackIp(ip: string | undefined): boolean {
+  if (!ip) return false;
+  const host = ip.toLowerCase().replace(/^::ffff:/, "");
+  return host === "127.0.0.1" || host === "::1";
+}
+
 function emailToHandle(email: string): string {
   const local = email.split("@")[0] ?? "user";
   const cleaned = local
@@ -84,8 +96,17 @@ export const authDeviceRoutes: FastifyPluginAsync<AuthDeviceRoutesOpts> = async 
         throw validationFailed("user_code and email are required");
       }
 
+      if (!isLoopbackIp(request.ip)) {
+        throw new ApiError(
+          403,
+          "FORBIDDEN",
+          "Device approval is only available from localhost",
+          "Run `scad login` on the machine that runs the control plane.",
+        );
+      }
+
       const email = body.data.email.toLowerCase();
-      if (opts.operatorEmails.size > 0 && !opts.operatorEmails.has(email)) {
+      if (!emailMayApprove(opts.operatorEmails, email)) {
         throw new ApiError(
           403,
           "FORBIDDEN",

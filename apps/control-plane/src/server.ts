@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     ...(process.env["SCAD_DATA_DIR"] ? { dataDir: process.env["SCAD_DATA_DIR"] } : {}),
     ...(process.env["BASE_DOMAIN"] ? { baseDomain: process.env["BASE_DOMAIN"] } : {}),
     ...(process.env["PUBLIC_BASE_URL"] ? { publicBaseUrl: process.env["PUBLIC_BASE_URL"] } : {}),
-    ...(process.env["INTERNAL_TOKEN"] ? { internalToken: process.env["INTERNAL_TOKEN"] } : {}),
+    internalToken: required("INTERNAL_TOKEN"),
     ...(process.env["INTERNAL_SECRET"]
       ? { internalSecret: process.env["INTERNAL_SECRET"] }
       : {}),

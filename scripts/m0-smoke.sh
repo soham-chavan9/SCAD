@@ -87,7 +87,7 @@ vals = {
     "MASTER_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
     "INTERNAL_SECRET": secrets.token_hex(24),
     "INTERNAL_TOKEN": secrets.token_hex(24),
-    "GATEWAY_FAKE_AUTH": "1",
+    "GATEWAY_FAKE_AUTH": "0",
     "GITHUB_CLIENT_ID": "",
     "GITHUB_CLIENT_SECRET": "",
     "OPERATOR_EMAILS": "",
@@ -118,25 +118,12 @@ out.write_text("\n".join(lines) + "\n")
 PY
     bash "$ROOT/scripts/fix-env-jwt-key.sh" >/dev/null
   fi
-  # Portable in-place set of GATEWAY_FAKE_AUTH (macOS sed needs '' after -i).
-  python3 - "$ROOT/.env" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-lines = p.read_text().splitlines()
-found = False
-out = []
-for line in lines:
-    if line.startswith("GATEWAY_FAKE_AUTH="):
-        out.append("GATEWAY_FAKE_AUTH=1")
-        found = True
-    else:
-        out.append(line)
-if not found:
-    out.append("GATEWAY_FAKE_AUTH=1")
-p.write_text("\n".join(out) + "\n")
-PY
   load_dotenv
+  # Process-only. Do not write this into .env; a later real-auth restart must stay off.
+  export GATEWAY_FAKE_AUTH=1
+  if [[ -z "${OPERATOR_EMAILS//[[:space:]]/}" ]]; then
+    export OPERATOR_EMAILS="$SMOKE_EMAIL"
+  fi
 }
 
 wait_http() {

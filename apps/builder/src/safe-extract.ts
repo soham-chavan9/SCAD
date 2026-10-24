@@ -43,6 +43,11 @@ export function assertSafeEntryPath(entryPath: string): void {
   if (!entryPath || entryPath === ".") {
     return;
   }
+  // Check raw segments before path.normalize collapses `foo/..` to `.`.
+  const segments = entryPath.split(/[/\\]/);
+  if (segments.some((segment) => segment === "..")) {
+    reject("Tarball entry escapes the extract root via ..", { path: entryPath });
+  }
   if (entryPath.startsWith("/") || entryPath.startsWith("\\")) {
     reject("Tarball entry has an absolute path", { path: entryPath });
   }

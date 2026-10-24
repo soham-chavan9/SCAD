@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { assertTruncateAllowed } from "./db/test-db.js";
 import { apps, pats, users } from "./db/schema.js";
 import { issuePat } from "./auth/pat.js";
 
@@ -22,6 +23,7 @@ describe.runIf(Boolean(databaseUrl))("control-plane integration (Postgres)", () 
     if (!databaseUrl) {
       throw new Error("DATABASE_URL required");
     }
+    assertTruncateAllowed(databaseUrl);
     dataDir = await mkdtemp(join(tmpdir(), "scad-cp-"));
     await runMigrations(databaseUrl);
     dbBundle = createDb(databaseUrl);
@@ -55,7 +57,7 @@ describe.runIf(Boolean(databaseUrl))("control-plane integration (Postgres)", () 
       name: "test",
     });
 
-    app = await buildApp({ db: dbBundle.db, dataDir });
+    app = await buildApp({ db: dbBundle.db, dataDir, internalToken: "test-internal-token" });
     await app.ready();
   });
 

@@ -11,7 +11,7 @@ export default defineConfig({
     hookTimeout: 120_000,
     env: {
       DATABASE_URL:
-        process.env["DATABASE_URL"] ?? "postgres://scad:scad@localhost:5432/scad",
+        process.env["DATABASE_URL"] ?? "postgres://scad:scad@localhost:5432/scad_test",
     },
   },
 });

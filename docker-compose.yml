@@ -35,7 +35,7 @@ services:
       PORT: "8080"
       DATABASE_URL: postgres://scad:scad@postgres:5432/scad
       BASE_DOMAIN: localhost:8080
-      INTERNAL_SECRET: ${INTERNAL_SECRET:-dev-internal-secret}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
       CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://host.docker.internal:4000}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
