@@ -29,6 +29,18 @@ export type ReleaseStatus = {
   log_tail: string[];
 };
 
+export type AppSummary = {
+  id: string;
+  slug: string;
+  ownerId: string;
+  status: string;
+  visibility: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastViewedAt: string | null;
+  url: string;
+};
+
 export class ScadApiError extends Error {
   readonly status: number;
   readonly envelope: ErrorEnvelope | { error: string };
@@ -104,6 +116,17 @@ export class ScadClient {
 
   async getRelease(id: string): Promise<ReleaseStatus> {
     return this.#json(`/v1/releases/${id}`, { method: "GET", auth: true });
+  }
+
+  async listApps(): Promise<{ apps: AppSummary[] }> {
+    return this.#json("/v1/apps", { method: "GET", auth: true });
+  }
+
+  async getApp(idOrSlug: string): Promise<{ app: AppSummary }> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, {
+      method: "GET",
+      auth: true,
+    });
   }
 
   async #json<T>(

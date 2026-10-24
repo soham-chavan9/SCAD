@@ -1,6 +1,14 @@
 export const PACKAGE_NAME = "shared" as const;
 
 export {
+  AppUrlError,
+  assertFinalAppUrl,
+  formatAppUrl,
+  normalizeBaseDomain,
+  type AppUrlErrorReason,
+} from "./app-url.js";
+
+export {
   ERROR_CODES,
   errorCodeSchema,
   errorEnvelopeSchema,

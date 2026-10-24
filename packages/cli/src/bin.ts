@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { defaultConfigPath } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
+import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
 
 async function main(): Promise<void> {
@@ -50,6 +51,29 @@ async function main(): Promise<void> {
           ...(opts.name ? { name: opts.name } : {}),
           configPath: opts.config,
           onStatus: (line) => console.log(line),
+        });
+        console.log(result.url);
+      } catch (err) {
+        if (err && typeof err === "object" && "envelope" in err) {
+          const envelope = (err as { envelope: Record<string, unknown> }).envelope;
+          console.error(JSON.stringify(envelope, null, 2));
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
+    });
+
+  program
+    .command("open")
+    .description("Open a published app URL in the default browser")
+    .argument("<app>", "App slug or id")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(async (app: string, opts: { config: string }) => {
+      try {
+        const result = await openApp({
+          app,
+          configPath: opts.config,
         });
         console.log(result.url);
       } catch (err) {

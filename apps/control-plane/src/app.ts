@@ -75,7 +75,7 @@ export async function buildApp(opts: BuildAppOptions) {
     operatorEmails,
     publicBaseUrl,
   });
-  await app.register(appsRoutes, { db: opts.db });
+  await app.register(appsRoutes, { db: opts.db, baseDomain });
   await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {

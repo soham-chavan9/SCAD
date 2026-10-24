@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { and, eq, max } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import {
+  AppUrlError,
   applyManifestDefaults,
+  formatAppUrl,
   parseManifest,
   slugSchema,
   type ManifestInput,
 } from "@scad/shared";
-import { appUrl } from "../app-url.js";
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, releases, users } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
@@ -171,11 +172,25 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
       metadata: { releaseId: release.id, version: nextVersion, slug: slugCandidate },
     });
 
-    const url = appUrl({
-      slug: appRow.slug,
-      ownerHandle: owner.handle,
-      baseDomain: opts.baseDomain,
-    });
+    let url: string;
+    try {
+      url = formatAppUrl({
+        slug: appRow.slug,
+        ownerHandle: owner.handle,
+        baseDomain: opts.baseDomain,
+      });
+    } catch (err) {
+      if (err instanceof AppUrlError) {
+        throw new ApiError(
+          500,
+          "INTERNAL",
+          "Could not determine the app host URL",
+          "Ensure BASE_DOMAIN is set and your account has a valid handle, then republish.",
+          { reason: err.reason },
+        );
+      }
+      throw err;
+    }
 
     return reply.status(202).send({
       app: {

@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as tar from "tar";
 import { describe, expect, it } from "vitest";
-import { createPublishTarball, PACKAGE_NAME, PUBLISH_MAX_BYTES } from "./index.js";
+import { ScadApiError } from "@scad/api-client";
+import {
+  createPublishTarball,
+  openApp,
+  PACKAGE_NAME,
+  publishDir,
+  PUBLISH_MAX_BYTES,
+  saveConfig,
+} from "./index.js";
 
 describe("@scad/cli", () => {
   it("exports helpers", () => {
@@ -38,5 +46,177 @@ describe("@scad/cli", () => {
     expect(entries.some((e) => e.startsWith("node_modules"))).toBe(false);
     expect(entries).not.toContain(".gitignore");
     expect(entries).not.toContain(".scadignore");
+  });
+
+  it("publishDir prints a final URL with no braces", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scad-pub-"));
+    await writeFile(join(dir, "Dockerfile"), "FROM scratch\n");
+    const configPath = join(dir, "config.json");
+    await saveConfig({ apiUrl: "http://cp.test", pat: "pat-test" }, configPath);
+
+    const finalUrl = "http://hello-node.alice.localhost:8080";
+    const status: string[] = [];
+    let releaseCalls = 0;
+
+    const result = await publishDir({
+      dir,
+      name: "hello-node",
+      configPath,
+      pollMs: 1,
+      onStatus: (line) => status.push(line),
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/v1/apps/publish") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              app: { id: "app-1", slug: "hello-node", ownerId: "u1", status: "building" },
+              release: { id: "rel-1", version: 1, status: "building" },
+              url: finalUrl,
+            }),
+            { status: 202, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/releases/rel-1")) {
+          releaseCalls += 1;
+          return new Response(
+            JSON.stringify({
+              id: "rel-1",
+              appId: "app-1",
+              version: 1,
+              status: "ready",
+              imageRef: "img",
+              error: null,
+              log_tail: [],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch,
+    });
+
+    expect(result.url).toBe(finalUrl);
+    expect(result.url).not.toMatch(/[{}]/);
+    expect(status.some((l) => l.includes(finalUrl))).toBe(true);
+    expect(status.every((l) => !l.includes("{") && !l.includes("}"))).toBe(true);
+    expect(releaseCalls).toBeGreaterThan(0);
+  });
+
+  it("publishDir fails with structured error when URL is a template", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scad-pub-bad-"));
+    await writeFile(join(dir, "Dockerfile"), "FROM scratch\n");
+    const configPath = join(dir, "config.json");
+    await saveConfig({ apiUrl: "http://cp.test", pat: "pat-test" }, configPath);
+
+    let thrown: unknown;
+    try {
+      await publishDir({
+        dir,
+        name: "hello-node",
+        configPath,
+        pollMs: 1,
+        fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === "POST") {
+            return new Response(
+              JSON.stringify({
+                app: { id: "app-1", slug: "hello-node", ownerId: "u1", status: "building" },
+                release: { id: "rel-1", version: 1, status: "building" },
+                url: "http://{slug}.{owner}.localhost:8080",
+              }),
+              { status: 202, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response("not found", { status: 404 });
+        }) as typeof fetch,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(ScadApiError);
+    const envelope = (thrown as ScadApiError).envelope;
+    expect(envelope).toMatchObject({
+      code: "INTERNAL",
+      message: "Could not determine the app host URL",
+    });
+    expect(JSON.stringify(envelope)).not.toMatch(/\{slug\}|\{owner\}/);
+  });
+
+  it("openApp opens the resolved final URL", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scad-open-"));
+    const configPath = join(dir, "config.json");
+    await saveConfig({ apiUrl: "http://cp.test", pat: "pat-test" }, configPath);
+    const opened: string[] = [];
+
+    const result = await openApp({
+      app: "hello-node",
+      configPath,
+      openUrl: async (url) => {
+        opened.push(url);
+      },
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        expect(url).toContain("/v1/apps/hello-node");
+        return new Response(
+          JSON.stringify({
+            app: {
+              id: "app-1",
+              slug: "hello-node",
+              ownerId: "u1",
+              status: "running",
+              visibility: "allowlist",
+              createdAt: new Date().toISOString(),
+              expiresAt: null,
+              lastViewedAt: null,
+              url: "http://hello-node.alice.localhost:8080",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+
+    expect(result.url).toBe("http://hello-node.alice.localhost:8080");
+    expect(result.url).not.toMatch(/[{}]/);
+    expect(opened).toEqual(["http://hello-node.alice.localhost:8080"]);
+  });
+
+  it("openApp fails with structured error when host URL is a template", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scad-open-bad-"));
+    const configPath = join(dir, "config.json");
+    await saveConfig({ apiUrl: "http://cp.test", pat: "pat-test" }, configPath);
+
+    let thrown: unknown;
+    try {
+      await openApp({
+        app: "hello-node",
+        configPath,
+        openUrl: async () => undefined,
+        fetchImpl: (async () =>
+          new Response(
+            JSON.stringify({
+              app: {
+                id: "app-1",
+                slug: "hello-node",
+                ownerId: "u1",
+                status: "running",
+                visibility: "allowlist",
+                createdAt: new Date().toISOString(),
+                expiresAt: null,
+                lastViewedAt: null,
+                url: "http://{slug}.{owner}.localhost:8080",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )) as typeof fetch,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(ScadApiError);
+    const envelope = (thrown as ScadApiError).envelope;
+    expect(envelope).toMatchObject({ code: "INTERNAL" });
+    expect(JSON.stringify(envelope)).not.toMatch(/\{slug\}|\{owner\}/);
   });
 });
