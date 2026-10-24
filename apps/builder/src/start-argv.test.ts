@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { startToArgv } from "./builder.js";
+import { DEFAULT_CPU_SHARES, startToArgv } from "./builder.js";
 
 describe("manifest.start as argv", () => {
   it("splits start into argv without a shell", () => {
@@ -12,6 +12,19 @@ describe("manifest.start as argv", () => {
       "-m",
       "http.server",
     ]);
+  });
+
+  it("uses Docker's one-CPU share weight, not 1", () => {
+    expect(DEFAULT_CPU_SHARES).toBe(1024);
+  });
+
+  it("keeps quoted arguments as one argv element", () => {
+    expect(startToArgv(`node -e "console.log('hi')"`)).toEqual([
+      "node",
+      "-e",
+      "console.log('hi')",
+    ]);
+    expect(startToArgv(`cmd "hello world" 'a b'`)).toEqual(["cmd", "hello world", "a b"]);
   });
 
   it("runtime deploy uses Entrypoint array (no /bin/sh -c) — source check", () => {

@@ -151,11 +151,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     if (!ip) {
       throw new Error(`no IP on network ${net} for container ${m.providerId}`);
     }
-    const portLabel = info.Config.Labels?.[LABEL_PORT];
-    const port = portLabel ? Number.parseInt(portLabel, 10) : 8080;
-    if (!Number.isFinite(port)) {
-      throw new Error(`invalid scad.port label on ${m.providerId}`);
-    }
+    const port = portFromLabel(info.Config.Labels?.[LABEL_PORT]);
     return { host: ip, port };
   }
 
@@ -352,6 +348,18 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
   }
 
+}
+
+/** Port is the image label set at deploy. Missing label is an error, not port 8080. */
+export function portFromLabel(label: string | undefined): number {
+  if (label === undefined || label.trim() === "") {
+    throw new Error("missing scad.port label");
+  }
+  const port = Number.parseInt(label, 10);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    throw new Error("invalid scad.port label");
+  }
+  return port;
 }
 
 type DockerError = { statusCode?: number; message?: string };
