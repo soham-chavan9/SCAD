@@ -228,7 +228,11 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
 
-  tests/adversarial: {}
+  tests/adversarial:
+    devDependencies:
+      '@scad/builder':
+        specifier: workspace:*
+        version: link:../../apps/builder
 
   tests/e2e: {}
 

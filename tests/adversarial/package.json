@@ -12,5 +12,8 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "@scad/builder": "workspace:*"
   }
 }
