@@ -51,3 +51,10 @@ export function setSessionCookie(
     expires: expiresAt,
   });
 }
+
+/** Double-submit CSRF cookie for auth-host forms (AGENTS §9). Host-only, HttpOnly. */
+export const CSRF_COOKIE = "scad_csrf";
+
+export function csrfCookieOptions(baseDomain: string): ReturnType<typeof oauthStateCookieOptions> {
+  return oauthStateCookieOptions(baseDomain);
+}

@@ -5,6 +5,7 @@ import type { Db } from "@scad/control-plane";
 import type { IdentityProvider } from "./auth/identity.js";
 import { authHost, parseHost } from "./host.js";
 import type { IdentityKeyMaterial } from "./identity/keys.js";
+import type { Mailer } from "./mail/mailer.js";
 import { notFoundPage } from "./pages.js";
 import { attachWebSocketProxy } from "./proxy/websocket.js";
 import type { AppResolver } from "./resolve.js";
@@ -18,6 +19,10 @@ export type BuildGatewayOptions = {
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
   allowDevLogin?: boolean;
+  /** Sends magic-link emails (T1.1). Required to offer email sign-in. */
+  mailer: Mailer;
+  /** Clock override (tests). */
+  now?: () => Date;
 };
 
 export async function buildGateway(opts: BuildGatewayOptions) {
@@ -34,6 +39,8 @@ export async function buildGateway(opts: BuildGatewayOptions) {
         baseDomain: opts.baseDomain,
         identity: opts.identity,
         keys: opts.keys,
+        mailer: opts.mailer,
+        now: opts.now ?? (() => new Date()),
         ...(opts.allowDevLogin !== undefined ? { allowDevLogin: opts.allowDevLogin } : {}),
       };
       await scope.register(authHostRoutes, authOpts);

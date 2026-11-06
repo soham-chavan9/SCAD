@@ -25,3 +25,5 @@ export {
   resolveIdentityKeys,
 } from "./identity/keys.js";
 export { buildUpstreamHeaders, jwksResponse } from "./identity/headers.js";
+export { MemoryMailer, SmtpMailer, type Mailer, type MailMessage } from "./mail/mailer.js";
+export { MAGIC_LINK_TTL_MS } from "./auth/magic-links.js";
