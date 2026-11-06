@@ -5,3 +5,4 @@ export { loginWithDeviceCode, type LoginOptions } from "./login.js";
 export { openApp, openInBrowser, type OpenAppOptions } from "./open-app.js";
 export { publishDir, type PublishOptions, type PublishResult } from "./publish.js";
 export { createPublishTarball, PUBLISH_MAX_BYTES } from "./tar-dir.js";
+export { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
