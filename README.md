@@ -22,7 +22,7 @@ Local services after `docker compose up -d`:
 | Service  | Port | Notes                          |
 |----------|------|--------------------------------|
 | Postgres | 5432 | `postgres://scad:scad@localhost:5432/scad` |
-| Mailpit  | 8025 | SMTP UI; SMTP on 1025          |
+| Mailpit  | 8025 | SMTP UI (magic-link emails land here); SMTP on 1025 |
 
 Control plane listens on `4000` on the host; gateway runs as the `scad-gateway` Compose service on `8080` (auth at `http://auth.localhost:8080`). Control plane + builder support `scad login` / `scad publish` (T0.5). The Docker runtime attaches that gateway container to each app network on deploy (T0.7).
 
@@ -57,5 +57,7 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `bash scripts/m0-smoke.sh` | Browserless M0 exit checks (PASS/FAIL); no sudo (macOS Docker Desktop OK). Linux VMs with broken bridge ICC: `--vm-only` (refuses on macOS). |
 
 Set `DATABASE_URL`, `INTERNAL_TOKEN`, `INTERNAL_SECRET`, and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose. Leave `GATEWAY_FAKE_AUTH` unset or `0` for real GitHub sign-in. `scripts/m0-smoke.sh` turns fake auth on for its own process only.
+
+Sign-in: GitHub or an emailed magic link (see [`docs/sign-in.md`](docs/sign-in.md)).
 
 **Do not expose this off localhost yet.** GitHub sign-in creates an account for any GitHub user. `OPERATOR_EMAILS` only decides who may approve `scad login`. Builds run with `docker build --network=none` (T0.9, INV8): `RUN` steps cannot reach Postgres, the control plane, Mailpit, the host, or the internet, so **Dockerfiles must not download dependencies in `RUN` steps**. Vendor them, bundle them, or use only the standard library. See [`docs/build-isolation.md`](docs/build-isolation.md).
