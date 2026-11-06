@@ -17,7 +17,9 @@ shows two options.
    can sign in, and the email is sent without awaiting it, so timing matches too
    (no account enumeration).
 3. A link is only created and sent for an **existing, active user** with that
-   email. (T1.2 extends this to emails an app has been shared with.)
+   email, or for an email some app has been shared with (T1.2). In the second
+   case the account is created when the link is used (handle from the email's
+   local part, e.g. `friend`, `friend-2`).
 4. The link is `auth.{BASE_DOMAIN}/login/email/verify?token=...`. Opening it
    shows a "Continue" button; the token is consumed only by the `POST`, so mail
    scanners that prefetch links cannot burn it.

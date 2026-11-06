@@ -7,6 +7,7 @@ Canonical agent brief and build plan live at the repo root:
 
 - [`build-isolation.md`](build-isolation.md) — how builds are isolated (INV8) and how to ship dependencies without `RUN`-time downloads
 - [`sign-in.md`](sign-in.md) — GitHub and email magic-link sign-in on the auth host
+- [`sharing.md`](sharing.md) — allowlists, `scad share`/`unshare`/`ls`, `visibility=instance`
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
 Threat model, runbook, and identity docs land in later tasks.
