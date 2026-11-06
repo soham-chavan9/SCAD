@@ -4,12 +4,12 @@
  * Env: PORT (default 8080), JWKS_URL (optional — when set, JWT is verified).
  */
 import { createServer } from "node:http";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { remoteJwks, verifyIdentityJwt } from "./verify.js";
 
 const port = Number(process.env.PORT ?? 8080);
 const jwksUrl = process.env.JWKS_URL;
 
-const jwks = jwksUrl ? createRemoteJWKSet(new URL(jwksUrl)) : null;
+const jwks = jwksUrl ? remoteJwks(jwksUrl) : null;
 
 const server = createServer(async (req, res) => {
   const email = req.headers["x-scad-user-email"] ?? null;
@@ -21,8 +21,7 @@ const server = createServer(async (req, res) => {
   let jwtError = null;
   if (identity && jwks) {
     try {
-      const { payload } = await jwtVerify(String(identity), jwks);
-      jwt = payload;
+      jwt = verifyIdentityJwt(String(identity), await jwks());
     } catch (err) {
       jwtError = err instanceof Error ? err.message : String(err);
     }
