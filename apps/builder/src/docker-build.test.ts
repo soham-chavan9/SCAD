@@ -50,3 +50,21 @@ describe("dockerBuild isolation (INV8)", () => {
     expect(calls[0]?.env).toEqual({ PATH: "/bin" });
   });
 });
+
+describe("scrubPlatformSecrets (INV8)", () => {
+  it("removes platform secrets from the builder's own environment", async () => {
+    const { scrubPlatformSecrets } = await import("./docker-build.js");
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/bin",
+      MASTER_KEY: "k",
+      JWT_PRIVATE_KEY: "k",
+      GITHUB_CLIENT_SECRET: "k",
+      INTERNAL_SECRET: "k",
+      INTERNAL_TOKEN: "k",
+      DATABASE_URL: "k",
+      SMTP_URL: "k",
+    };
+    scrubPlatformSecrets(env);
+    expect(env).toEqual({ PATH: "/bin" });
+  });
+});

@@ -1,9 +1,12 @@
 import { Builder } from "./builder.js";
+import { scrubPlatformSecrets } from "./docker-build.js";
 
 async function main(): Promise<void> {
   const controlPlaneUrl = process.env["SCAD_API_URL"] ?? process.env["PUBLIC_BASE_URL"] ?? "http://127.0.0.1:4000";
   const internalToken = required("INTERNAL_TOKEN");
   const pollMs = Number(process.env["BUILDER_POLL_MS"] ?? 500);
+  // INV8: the builder runs untrusted builds; hold no platform secrets in env.
+  scrubPlatformSecrets(process.env);
 
   const builder = new Builder({
     controlPlaneUrl,

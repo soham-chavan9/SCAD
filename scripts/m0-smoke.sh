@@ -210,7 +210,10 @@ start_stack() {
   fi
 
   # Start builder only after CP is reachable (avoids claim storms on boot)
-  pnpm --filter @scad/builder start >"$SMOKE_DIR/logs/builder.log" 2>&1 &
+  # INV8: the builder gets only what it needs, never MASTER_KEY, DATABASE_URL, etc.
+  env -i PATH="$PATH" HOME="$HOME" ${DOCKER_HOST:+DOCKER_HOST="$DOCKER_HOST"} \
+    INTERNAL_TOKEN="$INTERNAL_TOKEN" SCAD_API_URL="${SCAD_API_URL:-http://127.0.0.1:4000}" \
+    pnpm --filter @scad/builder start >"$SMOKE_DIR/logs/builder.log" 2>&1 &
   BUILDER_PID=$!
 
   for i in $(seq 1 60); do
