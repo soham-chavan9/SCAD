@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -149,3 +150,22 @@ export const magicLinks = pgTable("magic_links", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
+
+/**
+ * Per-app allowlist (T1.2). Keyed by lowercase email so an app can be shared
+ * before the person has an account; their first sign-in with that email links.
+ */
+export const appAccess = pgTable(
+  "app_access",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id),
+    email: text("email").notNull(),
+    grantedBy: uuid("granted_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.email] })],
+);
