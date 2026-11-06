@@ -1,6 +1,6 @@
 export const PACKAGE_NAME = "builder" as const;
 
-export { Builder, startToArgv, type BuilderOptions, type ClaimedJob } from "./builder.js";
+export { Builder, deployErrorEnvelope, startToArgv, type BuilderOptions, type ClaimedJob } from "./builder.js";
 export {
   buildArgs,
   buildEnv,
