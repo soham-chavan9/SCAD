@@ -1,0 +1,5 @@
+{
+  "name": "counter-sqlite",
+  "port": 8080,
+  "resources": { "disk_gb": 1 }
+}
