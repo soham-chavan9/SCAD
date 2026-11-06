@@ -33,8 +33,8 @@ async function oneShot(
     await c.start();
     const { StatusCode } = await c.wait();
     const logs = await c.logs({ stdout: true, stderr: true });
-    // Strip Docker's 8-byte multiplexing headers.
-    const out = String(logs).replace(/[\u0000-\u0008]/g, "");
+    // Docker's 8-byte multiplexing headers are harmless for the regexes below.
+    const out = String(logs);
     return { code: StatusCode, out };
   } finally {
     await c.remove({ force: true }).catch(() => undefined);
