@@ -124,7 +124,7 @@ describe.runIf(Boolean(databaseUrl))("magic-link sign-in (T1.1)", () => {
     dbBundle = createDb(databaseUrl);
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases,
+        app_access, magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases,
         pats, apps, users
       RESTART IDENTITY CASCADE
     `);

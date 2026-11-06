@@ -84,3 +84,13 @@ export async function consumeMagicLink(
   if (existing.usedAt) throw new MagicLinkError("used");
   throw new MagicLinkError("expired");
 }
+
+/** True if any app has been shared with this email (T1.2). */
+export async function isSharedEmail(db: Database, email: string): Promise<boolean> {
+  const rows = await db
+    .select({ appId: schema.appAccess.appId })
+    .from(schema.appAccess)
+    .where(eq(schema.appAccess.email, normalizeEmail(email)))
+    .limit(1);
+  return rows.length > 0;
+}

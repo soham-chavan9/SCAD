@@ -46,7 +46,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
 
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+        app_access, magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
 
