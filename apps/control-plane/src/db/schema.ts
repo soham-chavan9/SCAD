@@ -135,3 +135,17 @@ export const oauthStates = pgTable("oauth_states", {
   returnTo: text("return_to").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * Email magic links (T1.1). Single-use, 10-minute TTL, stored hashed (INV5).
+ * Bound to the app host the user was trying to reach (`app_host`).
+ */
+export const magicLinks = pgTable("magic_links", {
+  tokenHash: text("token_hash").primaryKey(),
+  email: text("email").notNull(),
+  appHost: text("app_host").notNull(),
+  returnTo: text("return_to").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
