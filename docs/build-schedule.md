@@ -85,10 +85,92 @@ it takes over an hour. Instead, on `task/t1-3-data-volume`:
 - Next step: find the stalling Docker call (likely container stop/wait on
   Docker Desktop 29.9) before Day 2 adds more Docker tests.
 
+## Day 2 — 2026-11-07
+
+`gh` is still **not authenticated**, so again nothing was pushed and no PRs
+exist. Docker Desktop was **paused** at the start of the run (`docker info`:
+"manually paused"); the agent ran `docker desktop restart` to resume it. The
+Day 1 Docker stalls may have been this pause, so the full run below rechecks.
+
+Today's branches continue the local stack:
+
+```
+task/t1-3-data-volume
+ └─ task/t1-4-idle-wake
+     └─ task/t1-5-manifest
+         └─ task/t1-6-env-secrets
+             └─ task/t1-7-runtime-logs
+```
+
+| Task | Status | Branch | PR | Not verified / notes |
+|---|---|---|---|---|
+| T1.4 Idle stop and wake | done | `task/t1-4-idle-wake` | none (gh not authed) | Wait page not clicked through in a real browser; covered by inject tests. |
+| T1.5 Manifest handling | done | `task/t1-5-manifest` | none | `egress` and `frame_ancestors` are stored only (T2.1 / later). |
+| T1.6 Env vars and secrets | done | `task/t1-6-env-secrets` | none | Rotation procedure tested in code, not run against a live instance. |
+| T1.7 Runtime logs | done | `task/t1-7-runtime-logs` | none | Runtime log lines older than 7 days are hidden, not erased (see Blocked). |
+
+### What changed
+
+- **T1.4**: `MachineController` in the control plane (it now holds a
+  `RuntimeProvider`; `server.ts` is the only place that picks Docker).
+  Single-flight `POST /internal/wake`, `POST /internal/touch`, and a 1-minute
+  idle sweep that stops unpinned apps idle for 10 minutes. The gateway's
+  `WakeCoordinator` does single-flight wakes, waits for the app's port,
+  holds non-HTML requests up to 15 s (then `503` + `Retry-After`), shows HTML
+  navigations a self-reloading "Starting…" page after 3 s, wakes on proxy
+  connect failure (stale resolve cache), holds WebSocket upgrades, and sends a
+  debounced touch (30 s). Real Docker: stopped app answers in ~2.7 s.
+- **T1.5**: The control plane reads root `scad.json` from the tarball (an
+  explicit `manifest` form field wins). `MANIFEST_INVALID` hints name the field
+  (`describeManifestIssues`), env keys are validated, scad.json is capped at 64
+  KB. Fixed: the smoke check ignored `start`/`env`, so a manifest `start` that
+  changed the port failed smoke. `deploySpecFromManifest` and `startToArgv` moved
+  to `@scad/shared`. Dependency: `tar@7.5.22` added to the control plane (already
+  pinned in the builder) to read `scad.json` from the upload without writing to
+  disk.
+- **T1.6**: `env_vars` table (migration 0004 + down). Envelope encryption:
+  per-record AES-256-GCM data key, wrapped by `MASTER_KEY`, AAD bound to
+  app + key, key fingerprint for rotation. `PUT`/`GET /v1/apps/:id/env`
+  (secrets never returned), audit rows with key names only, env changes redeploy
+  the current release, the builder fetches decrypted env just in time via
+  `POST /internal/builds/:id/runtime-env` (only while building, never into
+  `docker build`). `MASTER_KEY_PREVIOUS` + `rotate-master-key` script.
+  `scad env set|unset|ls`. Dev dependencies: `dockerode@5.0.1` and
+  `@types/dockerode@4.0.2` in the control plane (tests inspect containers; same
+  pins as runtime-docker).
+- **T1.7**: Incremental Docker log demuxer (the old code buffered the whole
+  follow stream, so `-f` could never stream). Containers get json-file
+  `max-size=10m,max-file=3`; the driver serves only the last 7 days.
+  `GET /v1/apps/:id/logs` SSE (owner only, heartbeat, stops on disconnect).
+  `scad logs <app> [-f] [-n N]`. Daily build-log prune (7 days).
+
+### Tests
+
+Full gate on `task/t1-7-runtime-logs` (which has all of Day 1 and Day 2), with Docker
+Desktop running:
+
+- `pnpm lint && pnpm typecheck && pnpm test`: **58 files, 223 tests passed in
+  140 s**, including every Docker-backed suite (conformance, invariants,
+  volume, INV8, publish integration, wake latency, live logs).
+- `pnpm test:adversarial`: 2 files / 3 tests passed. `pnpm test:e2e`: 1 passed.
+- **No Docker stalls this time.** Day 1's 15-minute hangs were most likely
+  Docker Desktop being paused; the whole suite now takes about 2.5 minutes.
+
+### Finding for Day 3 (T2.1/T2.2)
+
+The builder's smoke check (`apps/builder/src/smoke.ts`) runs the untrusted image
+on Docker's default bridge with a published port, not on the app's internal
+network, and without the INV6 hardening (non-root check, read-only rootfs, cap
+drop, limits). During those ≤30 s the app has outbound internet and can reach
+the host, and since T1.6 it also has the app's env. This predates Day 2. Fix it
+in T2.1/T2.2: run smoke on an internal network with the deploy's hardening, and
+probe from a helper container on that network.
+
 ## Blocked: needs human
 
-1. **gh auth / PRs.** Run `gh auth login`, then push the four stacked branches
-   and open PRs (or ask the agent to on the next run).
+1. **gh auth / PRs.** Run `gh auth login`, then push the eight stacked
+   branches (T0.9 → T1.7) and open PRs in order, each based on its parent (or
+   ask the agent to on the next run).
 2. **Hard `/data` size limit (T1.3).** Docker local volumes cannot enforce a
    size (loop mounts are rejected; tmpfs is not persistent). Implemented a
    measured limit instead. Options: accept measured limits for local/M2; use XFS
@@ -101,3 +183,16 @@ it takes over an hour. Instead, on `task/t1-3-data-volume`:
    §14 as a pre-exposure fix (invite allowlist); flagging because T1.2 makes
    it reachable via `scad share --instance`.
 5. Still open from T0.8: human GitHub second-account 403 browser check.
+6. **More §8 route additions (T1.6, T1.7 notes).** `GET /v1/apps/:id/env`
+   (lists keys; secret values never returned) was added alongside the §8
+   `PUT`. Internal-only `POST /internal/builds/:id/runtime-env` was added for the
+   builder. Approve and add them to AGENTS.md §8.
+7. **Runtime log retention is a read window, not deletion (T1.7).** Docker's
+   `json-file` driver cannot delete lines by age. Lines older than 7 days are
+   never served, and disk is capped at 30 MB per container, but old lines stay
+   on disk until rotation or redeploy. Options: accept this; switch to shipping
+   logs to our own store with real TTL deletion; or restart idle containers
+   weekly. Data retention policy is yours to decide (AGENTS §15).
+8. **Docker Desktop was paused** when the Day 2 run started; the agent restarted
+   it. If you pause it on purpose, the scheduled build cannot run its Docker
+   tests.
