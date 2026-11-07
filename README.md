@@ -55,6 +55,7 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 | `pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node` | Publish sample app (prints a real clickable URL) |
 | `pnpm exec tsx packages/cli/src/bin.ts open hello-node` | Open a published app in the default browser |
 | `pnpm exec tsx packages/cli/src/bin.ts share hello-node friend@example.com` | Let a friend open it (`unshare`, `ls` too; see [`docs/sharing.md`](docs/sharing.md)) |
+| `pnpm exec tsx packages/cli/src/bin.ts env set hello-node API_TOKEN=... --secret` | Give the app env vars and write-only secrets (needs `MASTER_KEY`; see [`docs/secrets.md`](docs/secrets.md)) |
 | `bash scripts/m0-smoke.sh` | Browserless M0 exit checks (PASS/FAIL); no sudo (macOS Docker Desktop OK). Linux VMs with broken bridge ICC: `--vm-only` (refuses on macOS). |
 
 Set `DATABASE_URL`, `INTERNAL_TOKEN`, `INTERNAL_SECRET`, and `OPERATOR_EMAILS` (see `.env.example`) before migrate/login. Run the control plane and builder on the host (`pnpm --filter @scad/control-plane start`, `pnpm --filter @scad/builder start`) when publishing outside tests. Gateway runs via Compose. Leave `GATEWAY_FAKE_AUTH` unset or `0` for real GitHub sign-in. `scripts/m0-smoke.sh` turns fake auth on for its own process only.

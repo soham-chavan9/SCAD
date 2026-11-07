@@ -119,9 +119,10 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Depends: T0.5. Done when: `scad.json` fields drive port, start command, env, resources; invalid manifests return `MANIFEST_INVALID` with a field-level hint; defaults from §11 apply when absent.
   - Tests: `apps/control-plane/src/manifest-publish.integration.test.ts`, `packages/shared/src/manifest.test.ts`, and the real-Docker case in `publish.integration.test.ts`. Docs: `docs/manifest.md`. The control plane reads root `scad.json` from the tarball; the smoke check now runs the manifest `start`/`env`. `egress` and `frame_ancestors` are stored only (T2.1 and later).
 
-- [ ] **T1.6 Env vars and encrypted secrets**
+- [x] **T1.6 Env vars and encrypted secrets**
   - Depends: T0.3. Files: `env_vars` migration, crypto helper using `MASTER_KEY` (AES-256-GCM, per-record nonce), CLI `env set`.
   - Done when: secrets are write-only (never returned by GET, never in logs, never in audit metadata); injected at start; rotating `MASTER_KEY` procedure documented (INV7, INV12).
+  - Tests: `apps/control-plane/src/secrets/crypto.test.ts`, `apps/control-plane/src/env.integration.test.ts`, `packages/cli/src/env.test.ts`, real-Docker case in `publish.integration.test.ts`. Docs: `docs/secrets.md`. Envelope encryption (per-record data key wrapped by `MASTER_KEY`); `scad env set|unset|ls`; env changes redeploy the app. Adds `GET /v1/apps/:id/env` to the §8 routes.
 
 - [ ] **T1.7 Runtime logs**
   - Depends: T0.4. Done when: `scad logs <app> -f` streams live stdout/stderr; non-owners cannot read logs; 7-day retention job.
