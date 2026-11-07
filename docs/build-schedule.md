@@ -69,7 +69,21 @@ and so on). Or merge them into `dev` in order.
 
 ### Full run
 
-(filled in at end of run)
+A full `pnpm test` was not re-run at the end of Day 1: with the Docker stalls
+it takes over an hour. Instead, on `task/t1-3-data-volume`:
+
+- All Docker-backed files together (`runtime-docker/*`, `publish.integration`,
+  `tests/adversarial`): 22 passed, 3 timed out (conformance "remove without
+  deleteVolume", volume "counter survives", INV8 control build), each stalled
+  ~15 min on a Docker call.
+- Re-run one file at a time: INV8 2/2 passed, volume 3/3 passed (16 s);
+  conformance stalled again in one re-run. These match the stalls already
+  seen on `dev` before any Day 1 change.
+- Cleanup hooks time out during the stalls, so `scad-run-*` test containers
+  from `scad-test/*` images pile up. Remove them before the next run:
+  `docker ps -a --format '{{.ID}} {{.Image}}' | awk '$2 ~ /^scad-test\//{print $1}' | xargs docker rm -f`.
+- Next step: find the stalling Docker call (likely container stop/wait on
+  Docker Desktop 29.9) before Day 2 adds more Docker tests.
 
 ## Blocked: needs human
 
