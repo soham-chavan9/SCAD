@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   AppUrlError,
   applyManifestDefaults,
+  describeManifestIssues,
   formatAppUrl,
   parseManifest,
   slugSchema,
@@ -12,6 +13,7 @@ import {
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, releases, users } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
+import { readRootScadJson, ScadJsonTooLargeError } from "../manifest-from-tarball.js";
 import { saveTarball, type DataPaths } from "../storage.js";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
@@ -21,6 +23,29 @@ export type PublishRoutesOpts = {
   paths: DataPaths;
   baseDomain: string;
 };
+
+function manifestInvalid(message: string, hint: string, details: Record<string, unknown> = {}): ApiError {
+  return new ApiError(400, "MANIFEST_INVALID", message, hint, details);
+}
+
+/** Validate a manifest JSON string (from the form field or the tarball's scad.json). */
+function parseManifestText(text: string, source: "scad.json" | "manifest field"): ManifestInput {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw manifestInvalid(
+      `${source} is not valid JSON`,
+      `Make ${source === "scad.json" ? "scad.json" : "the manifest field"} a JSON object (check commas and quotes; scad.json allows no comments), then republish.`,
+    );
+  }
+  const parsed = parseManifest(json);
+  if (!parsed.success) {
+    const { issues, hint } = describeManifestIssues(parsed.error);
+    throw manifestInvalid(`${source} failed validation`, hint, { source, issues });
+  }
+  return parsed.data;
+}
 
 function slugFromName(name: string): string | null {
   const cleaned = name
@@ -59,33 +84,7 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
       } else if (part.fieldname === "name" && typeof part.value === "string") {
         nameField = part.value;
       } else if (part.fieldname === "manifest" && typeof part.value === "string") {
-        try {
-          const json: unknown = JSON.parse(part.value);
-          const parsed = parseManifest(json);
-          if (!parsed.success) {
-            throw new ApiError(
-              400,
-              "MANIFEST_INVALID",
-              "Manifest validation failed",
-              "Fix scad.json fields and republish.",
-              {
-                issues: parsed.error.issues.map((i) => ({
-                  path: i.path.join("."),
-                  message: i.message,
-                })),
-              },
-            );
-          }
-          manifestField = parsed.data;
-        } catch (err) {
-          if (err instanceof ApiError) throw err;
-          throw new ApiError(
-            400,
-            "MANIFEST_INVALID",
-            "Manifest is not valid JSON",
-            "Send a JSON object in the manifest field or include scad.json in the tarball.",
-          );
-        }
+        manifestField = parseManifestText(part.value, "manifest field");
       }
     }
 
@@ -93,7 +92,24 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
       throw validationFailed("Missing tarball file field");
     }
 
-    const manifestInput = manifestField ?? {};
+    // An explicit manifest field wins; otherwise scad.json at the tarball root (§11).
+    let manifestInput: ManifestInput = manifestField ?? {};
+    if (!manifestField) {
+      let text: string | null;
+      try {
+        text = await readRootScadJson(tarball);
+      } catch (err) {
+        if (err instanceof ScadJsonTooLargeError) {
+          throw manifestInvalid(err.message, "Keep scad.json under 64 KB; it holds settings, not data.");
+        }
+        throw validationFailed("Tarball could not be read", {
+          hint: "Republish with `scad publish`, which builds a valid tarball.",
+        });
+      }
+      if (text !== null) {
+        manifestInput = parseManifestText(text, "scad.json");
+      }
+    }
     const resolved = applyManifestDefaults(manifestInput);
 
     const slugCandidate =

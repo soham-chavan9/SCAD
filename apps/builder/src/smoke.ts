@@ -5,6 +5,10 @@ export async function smokeCheckHttp(opts: {
   docker?: Docker;
   imageRef: string;
   port: number;
+  /** manifest.start as argv, same as the deploy (T1.5). Never a shell string. */
+  start?: string[];
+  /** manifest env, same as the deploy (T1.5). */
+  env?: Record<string, string>;
   timeoutMs?: number;
 }): Promise<void> {
   const docker = opts.docker ?? new Docker();
@@ -12,6 +16,8 @@ export async function smokeCheckHttp(opts: {
 
   const container = await docker.createContainer({
     Image: opts.imageRef,
+    ...(opts.start !== undefined && opts.start.length > 0 ? { Entrypoint: opts.start, Cmd: [] } : {}),
+    ...(opts.env ? { Env: Object.entries(opts.env).map(([k, v]) => `${k}=${v}`) } : {}),
     ExposedPorts: { [`${opts.port}/tcp`]: {} },
     HostConfig: {
       PortBindings: {
