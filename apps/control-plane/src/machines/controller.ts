@@ -102,6 +102,19 @@ export class MachineController {
     return true;
   }
 
+  /** The app's runtime log lines (owner checks happen in the route). */
+  async logs(appId: string, opts: { follow: boolean; tail: number }): Promise<AsyncIterable<string>> {
+    const [row] = await this.#db
+      .select({ providerId: machines.providerId })
+      .from(machines)
+      .where(eq(machines.appId, appId))
+      .limit(1);
+    if (!row?.providerId) {
+      throw new ApiError(404, "NOT_FOUND", "App has no running release yet", "Publish the app with `scad publish`, then retry.");
+    }
+    return this.#runtime.logs({ appId, providerId: row.providerId }, opts);
+  }
+
   /** Record traffic: keeps the app awake and marks it viewed. */
   async touch(appId: string): Promise<void> {
     const now = this.#now();

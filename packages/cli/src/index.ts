@@ -7,3 +7,4 @@ export { publishDir, type PublishOptions, type PublishResult } from "./publish.j
 export { createPublishTarball, PUBLISH_MAX_BYTES } from "./tar-dir.js";
 export { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
 export { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
+export { streamLogs } from "./logs.js";

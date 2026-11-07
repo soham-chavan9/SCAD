@@ -1,5 +1,10 @@
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildApp } from "./app.js";
+import { startLogRetention } from "./log-retention.js";
+import { createDataPaths } from "./storage.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { MachineController, startIdleStopper } from "./machines/controller.js";
@@ -26,11 +31,17 @@ async function main(): Promise<void> {
     console.warn("MASTER_KEY is not set: `scad env` is disabled until it is.");
   }
 
+  const dataDir = process.env["SCAD_DATA_DIR"] ?? mkdtempSync(join(tmpdir(), "scad-data-"));
+  const paths = createDataPaths(dataDir);
+  startLogRetention(paths, {
+    onError: (err) => console.error("log retention failed:", err instanceof Error ? err.message : err),
+  });
+
   const app = await buildApp({
     db,
+    paths,
     machines,
     ...(masterKeys ? { masterKeys } : {}),
-    ...(process.env["SCAD_DATA_DIR"] ? { dataDir: process.env["SCAD_DATA_DIR"] } : {}),
     ...(process.env["BASE_DOMAIN"] ? { baseDomain: process.env["BASE_DOMAIN"] } : {}),
     ...(process.env["PUBLIC_BASE_URL"] ? { publicBaseUrl: process.env["PUBLIC_BASE_URL"] } : {}),
     internalToken: required("INTERNAL_TOKEN"),

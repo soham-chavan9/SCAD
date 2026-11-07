@@ -5,6 +5,7 @@ import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
 import { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
+import { streamLogs } from "./logs.js";
 import { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
 
 async function main(): Promise<void> {
@@ -148,6 +149,27 @@ async function main(): Promise<void> {
         for (const a of await listApps({ configPath: opts.config })) {
           console.log(`${a.slug}\t${a.status}\t${a.visibility}\t${a.url}`);
         }
+      }),
+    );
+
+  program
+    .command("logs")
+    .description("Print an app's runtime logs (stdout and stderr). Owner only.")
+    .argument("<app>", "App slug or id")
+    .option("-f, --follow", "Keep streaming new lines")
+    .option("-n, --tail <lines>", "Lines of history to show first", "100")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, opts: { follow?: boolean; tail: string; config: string }) => {
+        const tail = Number(opts.tail);
+        if (!Number.isInteger(tail) || tail < 0) throw new Error("--tail must be a whole number");
+        await streamLogs({
+          app,
+          follow: opts.follow === true,
+          tail,
+          configPath: opts.config,
+          onLine: (line) => console.log(line),
+        });
       }),
     );
 
