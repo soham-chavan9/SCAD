@@ -72,6 +72,12 @@ importers:
       '@fastify/multipart':
         specifier: 9.0.3
         version: 9.0.3
+      '@scad/runtime-conformance':
+        specifier: workspace:*
+        version: link:../../packages/runtime-conformance
+      '@scad/runtime-docker':
+        specifier: workspace:*
+        version: link:../../packages/runtime-docker
       '@scad/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -100,9 +106,6 @@ importers:
       '@scad/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@scad/runtime-docker':
-        specifier: workspace:*
-        version: link:../../packages/runtime-docker
       drizzle-kit:
         specifier: 0.31.5
         version: 0.31.5
@@ -160,6 +163,9 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
+      '@scad/runtime-conformance':
+        specifier: workspace:*
+        version: link:../../packages/runtime-conformance
       '@types/http-proxy':
         specifier: 1.17.16
         version: 1.17.16

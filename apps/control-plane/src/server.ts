@@ -1,6 +1,8 @@
+import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { buildApp } from "./app.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { MachineController, startIdleStopper } from "./machines/controller.js";
 
 async function main(): Promise<void> {
   const databaseUrl = required("DATABASE_URL");
@@ -11,8 +13,15 @@ async function main(): Promise<void> {
   await runMigrations(databaseUrl);
   const { db } = createDb(databaseUrl);
 
+  // Composition root: the only place the control plane picks a runtime driver.
+  const machines = new MachineController({ db, runtime: new DockerRuntimeProvider() });
+  startIdleStopper(machines, {
+    onError: (err) => console.error("idle stopper failed:", err instanceof Error ? err.message : err),
+  });
+
   const app = await buildApp({
     db,
+    machines,
     ...(process.env["SCAD_DATA_DIR"] ? { dataDir: process.env["SCAD_DATA_DIR"] } : {}),
     ...(process.env["BASE_DOMAIN"] ? { baseDomain: process.env["BASE_DOMAIN"] } : {}),
     ...(process.env["PUBLIC_BASE_URL"] ? { publicBaseUrl: process.env["PUBLIC_BASE_URL"] } : {}),

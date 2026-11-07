@@ -33,6 +33,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@scad/runtime-conformance": "workspace:*",
     "@types/http-proxy": "1.17.16",
     "@types/ws": "8.18.1"
   }
