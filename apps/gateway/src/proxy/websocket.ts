@@ -10,12 +10,15 @@ import { buildUpstreamHeaders } from "../identity/headers.js";
 import type { IdentityKeyMaterial } from "../identity/keys.js";
 import type { AppResolver } from "../resolve.js";
 import { upstreamTarget } from "../resolve.js";
+import { WAKE_BUDGET_MS, type WakeCoordinator } from "../wake.js";
 
 export type WsProxyOpts = {
   db: Db["db"];
   baseDomain: string;
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
+  wake?: WakeCoordinator;
+  wakeBudgetMs?: number;
 };
 
 /** Platform paths must never be upgraded into the app container. */
@@ -91,6 +94,19 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
         });
 
         const target = upstreamTarget(resolved);
+        if (opts.wake) {
+          opts.wake.touch(resolved.appId, user.id);
+          if (opts.wake.needsWake(resolved)) {
+            const outcome = await opts.wake.hold(
+              opts.wake.wake(resolved.appId, target),
+              opts.wakeBudgetMs ?? WAKE_BUDGET_MS,
+            );
+            if (outcome !== "ready") {
+              socket.destroy();
+              return;
+            }
+          }
+        }
         proxy.ws(req, socket, head, {
           target: `http://${target.host}:${target.port}`,
           headers,

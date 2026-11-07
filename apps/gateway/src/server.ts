@@ -6,6 +6,7 @@ import { assertFakeAuthAllowed } from "./fake-auth-guard.js";
 import { resolveIdentityKeys } from "./identity/keys.js";
 import { SmtpMailer, defaultFromAddress } from "./mail/mailer.js";
 import { createHttpAppResolver } from "./resolve.js";
+import { createHttpMachineClient } from "./wake.js";
 
 async function main(): Promise<void> {
   const databaseUrl = required("DATABASE_URL");
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
       internalSecret,
     }),
     allowDevLogin: fakeAuth,
+    machines: createHttpMachineClient({ controlPlaneUrl, internalSecret }),
   });
 
   await gateway.listen({ port, host: "0.0.0.0" });
