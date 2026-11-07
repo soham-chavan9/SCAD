@@ -115,8 +115,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: stopped app serves the first request within 10 s; wake storm test shows exactly one `start` call; HTML navigations see the self-retrying page.
   - Tests: `apps/control-plane/src/idle-wake.integration.test.ts`, `apps/gateway/src/wake.integration.test.ts`, `packages/runtime-docker/src/wake-latency.test.ts` (real Docker, ~2.7 s). Docs: `docs/idle-wake.md`. Adds `/internal/touch` (already in §8) and the control plane now holds a `RuntimeProvider`.
 
-- [ ] **T1.5 Manifest handling**
+- [x] **T1.5 Manifest handling**
   - Depends: T0.5. Done when: `scad.json` fields drive port, start command, env, resources; invalid manifests return `MANIFEST_INVALID` with a field-level hint; defaults from §11 apply when absent.
+  - Tests: `apps/control-plane/src/manifest-publish.integration.test.ts`, `packages/shared/src/manifest.test.ts`, and the real-Docker case in `publish.integration.test.ts`. Docs: `docs/manifest.md`. The control plane reads root `scad.json` from the tarball; the smoke check now runs the manifest `start`/`env`. `egress` and `frame_ancestors` are stored only (T2.1 and later).
 
 - [ ] **T1.6 Env vars and encrypted secrets**
   - Depends: T0.3. Files: `env_vars` migration, crypto helper using `MASTER_KEY` (AES-256-GCM, per-record nonce), CLI `env set`.
