@@ -55,3 +55,11 @@ export {
 } from "./jwt.js";
 
 export { isUuid, newId, uuidSchema } from "./id.js";
+
+export {
+  DEFAULT_CPU_SHARES,
+  DEFAULT_PIDS,
+  deploySpecFromManifest,
+  startToArgv,
+  type DeploySpecShape,
+} from "./deploy-spec.js";

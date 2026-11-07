@@ -1,11 +1,12 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { ScadApiError } from "@scad/api-client";
 import { Builder } from "@scad/builder";
-import { loginWithDeviceCode, publishDir } from "@scad/cli";
+import { randomBytes } from "node:crypto";
+import { listEnv, loginWithDeviceCode, publishDir, setEnv } from "@scad/cli";
 import Docker from "dockerode";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
@@ -47,7 +48,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     dbBundle = createDb(databaseUrl);
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+        env_vars, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
 
@@ -58,6 +59,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
       publicBaseUrl: "http://127.0.0.1",
       operatorEmails: ["publisher@example.com"],
       internalToken,
+      masterKeys: { current: randomBytes(32), previous: [] },
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
     const addr = app.server.address();
@@ -180,6 +182,31 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
       expect(info.Config.Env).toContain("GREETING=hi from scad.json");
       expect(info.HostConfig.Memory).toBe(256 * 1024 * 1024);
       expect(Object.keys(info.Config.ExposedPorts ?? {})).toContain("3000/tcp");
+    },
+    300_000,
+  );
+
+  it(
+    "a secret set with scad env is injected at container start, never into the build or logs (T1.6)",
+    async () => {
+      const secret = `sk-${randomBytes(12).toString("hex")}`;
+      const example = join(process.cwd(), "examples/hello-node");
+      await setEnv({ app: "hello-node", vars: { API_TOKEN: secret }, secret: true, configPath });
+      expect(JSON.stringify(await listEnv({ app: "hello-node", configPath }))).not.toContain(secret);
+
+      const result = await publishDir({ dir: example, name: "hello-node", configPath, pollMs: 300 });
+      const [machine] = await dbBundle.db
+        .select()
+        .from(machines)
+        .where(eq(machines.appId, result.appId))
+        .limit(1);
+      const info = await new Docker().getContainer(machine!.providerId).inspect();
+      expect(info.Config.Env).toContain(`API_TOKEN=${secret}`);
+
+      const logs = await fetch(`${baseUrl}/v1/releases/${result.releaseId}`, {
+        headers: { authorization: `Bearer ${JSON.parse(await readFile(configPath, "utf8")).pat}` },
+      });
+      expect(await logs.text()).not.toContain(secret);
     },
     300_000,
   );

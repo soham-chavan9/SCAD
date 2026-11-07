@@ -11,12 +11,14 @@ import { MachineController } from "./machines/controller.js";
 import { authPlugin } from "./plugins/auth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
+import { envRoutes } from "./routes/env.js";
 import { healthRoutes } from "./routes/health.js";
 import { internalBuildsRoutes } from "./routes/internal-builds.js";
 import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { shareRoutes } from "./routes/share.js";
+import type { MasterKeyRing } from "./secrets/crypto.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
 export type BuildAppOptions = {
@@ -38,6 +40,8 @@ export type BuildAppOptions = {
   machines?: MachineController;
   /** Clock override (tests). */
   now?: () => Date;
+  /** MASTER_KEY (+ previous keys during rotation) for env var encryption (T1.6). */
+  masterKeys?: MasterKeyRing;
 };
 
 export async function buildApp(opts: BuildAppOptions) {
@@ -85,15 +89,6 @@ export async function buildApp(opts: BuildAppOptions) {
     publicBaseUrl,
   });
   await app.register(appsRoutes, { db: opts.db, baseDomain });
-  await app.register(shareRoutes, { db: opts.db });
-  await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
-  await app.register(releasesRoutes, { db: opts.db, paths });
-  await app.register(internalBuildsRoutes, {
-    db: opts.db,
-    paths,
-    internalToken,
-  });
-
   const machines =
     opts.machines ??
     (opts.runtime
@@ -103,6 +98,21 @@ export async function buildApp(opts: BuildAppOptions) {
           ...(opts.now ? { now: opts.now } : {}),
         })
       : undefined);
+
+  await app.register(shareRoutes, { db: opts.db });
+  await app.register(envRoutes, {
+    db: opts.db,
+    internalToken,
+    ...(opts.masterKeys ? { masterKeys: opts.masterKeys } : {}),
+    ...(machines ? { machines } : {}),
+  });
+  await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
+  await app.register(releasesRoutes, { db: opts.db, paths });
+  await app.register(internalBuildsRoutes, {
+    db: opts.db,
+    paths,
+    internalToken,
+  });
 
   if (opts.internalSecret) {
     await app.register(internalRoutes, {

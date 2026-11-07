@@ -3,6 +3,7 @@ import { buildApp } from "./app.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { MachineController, startIdleStopper } from "./machines/controller.js";
+import { masterKeyRingFromEnv } from "./secrets/rotate.js";
 
 async function main(): Promise<void> {
   const databaseUrl = required("DATABASE_URL");
@@ -19,9 +20,16 @@ async function main(): Promise<void> {
     onError: (err) => console.error("idle stopper failed:", err instanceof Error ? err.message : err),
   });
 
+  // Throws on a malformed key; unset means env vars are unavailable (503).
+  const masterKeys = masterKeyRingFromEnv(process.env);
+  if (!masterKeys) {
+    console.warn("MASTER_KEY is not set: `scad env` is disabled until it is.");
+  }
+
   const app = await buildApp({
     db,
     machines,
+    ...(masterKeys ? { masterKeys } : {}),
     ...(process.env["SCAD_DATA_DIR"] ? { dataDir: process.env["SCAD_DATA_DIR"] } : {}),
     ...(process.env["BASE_DOMAIN"] ? { baseDomain: process.env["BASE_DOMAIN"] } : {}),
     ...(process.env["PUBLIC_BASE_URL"] ? { publicBaseUrl: process.env["PUBLIC_BASE_URL"] } : {}),

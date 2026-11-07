@@ -1,7 +1,8 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { deploySpecFromManifest } from "@scad/shared";
 import type { RuntimeProvider } from "@scad/runtime-conformance";
 import type { Db } from "../db/client.js";
-import { apps, machines } from "../db/schema.js";
+import { apps, machines, releases } from "../db/schema.js";
 import { ApiError } from "../errors.js";
 
 /** AGENTS §14 default: stop an app after 10 minutes without traffic. */
@@ -14,7 +15,7 @@ export type MachineControllerOpts = {
   idleMs?: number;
 };
 
-type Op = { kind: "wake" | "stop"; done: Promise<unknown> };
+type Op = { kind: "wake" | "stop" | "deploy"; done: Promise<unknown> };
 
 /**
  * Starts and stops app machines. One operation per app at a time, and
@@ -49,6 +50,56 @@ export class MachineController {
     this.#track(appId, { kind: "wake", done });
     await done;
     return { state: "running" };
+  }
+
+  /**
+   * Re-deploy the latest ready release with `runtimeEnv` (env changes, T1.6).
+   * Returns false when there is no ready release to deploy yet.
+   */
+  async redeploy(appId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+    const current = this.#ops.get(appId);
+    if (current) await current.done.catch(() => undefined);
+    const done = this.#doRedeploy(appId, runtimeEnv);
+    this.#track(appId, { kind: "deploy", done });
+    return done;
+  }
+
+  async #doRedeploy(appId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+    const [release] = await this.#db
+      .select({ imageRef: releases.imageRef, manifest: releases.manifest })
+      .from(releases)
+      .where(and(eq(releases.appId, appId), eq(releases.status, "ready")))
+      .orderBy(desc(releases.version))
+      .limit(1);
+    if (!release?.imageRef) return false;
+
+    const spec = deploySpecFromManifest({
+      appId,
+      imageRef: release.imageRef,
+      manifest: release.manifest,
+      runtimeEnv,
+    });
+    await this.#runtime.ensureApp(appId, spec.limits.diskGb);
+    const machine = await this.#runtime.deploy(spec);
+    const now = this.#now();
+    await this.#db
+      .insert(machines)
+      .values({
+        appId,
+        providerId: machine.providerId,
+        volumeRef: `scad-data-${appId}`,
+        state: "running",
+        lastStartedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: machines.appId,
+        set: { providerId: machine.providerId, state: "running", lastStartedAt: now },
+      });
+    await this.#db
+      .update(apps)
+      .set({ status: "running" })
+      .where(and(eq(apps.id, appId), eq(apps.status, "stopped")));
+    return true;
   }
 
   /** Record traffic: keeps the app awake and marks it viewed. */

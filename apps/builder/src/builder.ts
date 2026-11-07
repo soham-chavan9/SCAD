@@ -1,37 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyManifestDefaults, makeError, type ManifestInput } from "@scad/shared";
+import { deploySpecFromManifest, makeError } from "@scad/shared";
 import { DockerRuntimeProvider, VolumeQuotaExceededError } from "@scad/runtime-docker";
 import { dockerBuild } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
 
-/**
- * Docker relative CPU weight for one CPU. `1` is not one CPU; it starves the
- * container whenever anything else on the host is runnable.
- */
-export const DEFAULT_CPU_SHARES = 1024;
-
-/**
- * Split manifest.start into argv. Quotes are grouping, not shell syntax:
- * the result is passed as a Docker entrypoint array, never to `/bin/sh -c`.
- */
-export function startToArgv(start: string): string[] {
-  const out: string[] = [];
-  const re = /"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|\S+/g;
-  for (const match of start.trim().matchAll(re)) {
-    let token = match[0];
-    if (
-      (token.startsWith('"') && token.endsWith('"')) ||
-      (token.startsWith("'") && token.endsWith("'"))
-    ) {
-      token = token.slice(1, -1).replace(/\\(["'\\])/g, "$1");
-    }
-    if (token.length > 0) out.push(token);
-  }
-  return out;
-}
+export { DEFAULT_CPU_SHARES, startToArgv } from "@scad/shared";
 
 /** §8 envelope for a deploy that the runtime refused. */
 export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> {
@@ -129,24 +105,28 @@ export class Builder {
         return;
       }
 
-      const manifest = applyManifestDefaults(
-        (job.manifest ?? {}) as ManifestInput,
-      );
-      const port = manifest.port;
-      const startArgv =
-        manifest.start !== undefined ? startToArgv(manifest.start) : undefined;
+      // Stored env vars (incl. secrets) are fetched only now, after the build,
+      // so they never reach `docker build` (INV7, INV8). Never logged.
+      const runtimeEnv = await this.#runtimeEnv(job.releaseId);
+      const spec = deploySpecFromManifest({
+        appId: job.appId,
+        imageRef,
+        manifest: job.manifest,
+        runtimeEnv,
+      });
+      const port = spec.port;
 
       try {
         await this.#log(job.releaseId, `smoke-checking port ${port}`);
         await smokeCheckHttp({
           imageRef,
           port,
-          ...(startArgv !== undefined && startArgv.length > 0 ? { start: startArgv } : {}),
-          env: manifest.env,
+          ...(spec.start ? { start: spec.start } : {}),
+          env: spec.env,
           timeoutMs: 30_000,
         });
       } catch (err) {
-        await this.#log(job.releaseId, `smoke failed: ${String(err)}`);
+        await this.#log(job.releaseId, `smoke failed: ${err instanceof Error ? err.message : "unknown error"}`);
         await this.#fail(
           job.releaseId,
           makeError(
@@ -159,21 +139,8 @@ export class Builder {
         return;
       }
 
-      await this.#runtime.ensureApp(job.appId, manifest.resources.disk_gb);
-      const machine = await this.#runtime.deploy({
-        appId: job.appId,
-        imageRef,
-        port,
-        ...(startArgv !== undefined && startArgv.length > 0 ? { start: startArgv } : {}),
-        env: manifest.env,
-        egressAllow: manifest.egress,
-        limits: {
-          memoryMb: manifest.resources.memory_mb,
-          cpuShares: DEFAULT_CPU_SHARES,
-          diskGb: manifest.resources.disk_gb,
-          pids: 128,
-        },
-      });
+      await this.#runtime.ensureApp(job.appId, spec.limits.diskGb);
+      const machine = await this.#runtime.deploy(spec);
 
       await this.#completeOk(job.releaseId, imageRef, machine.providerId);
       await this.#log(job.releaseId, `deployed ${machine.providerId}`);
@@ -183,6 +150,19 @@ export class Builder {
     } finally {
       await rm(work, { recursive: true, force: true });
     }
+  }
+
+  /** Decrypted stored env for this release's app, fetched just in time (T1.6). */
+  async #runtimeEnv(releaseId: string): Promise<Record<string, string>> {
+    const res = await this.#fetch(`${this.#baseUrl}/internal/builds/${releaseId}/runtime-env`, {
+      method: "POST",
+      headers: { "x-scad-internal-token": this.#token },
+    });
+    if (!res.ok) {
+      throw new Error(`runtime-env failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { env: Record<string, string> };
+    return body.env;
   }
 
   async #log(releaseId: string, chunk: string): Promise<void> {

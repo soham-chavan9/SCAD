@@ -4,6 +4,7 @@ import { defaultConfigPath } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
+import { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
 import { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
 
 async function main(): Promise<void> {
@@ -146,6 +147,50 @@ async function main(): Promise<void> {
         }
         for (const a of await listApps({ configPath: opts.config })) {
           console.log(`${a.slug}\t${a.status}\t${a.visibility}\t${a.url}`);
+        }
+      }),
+    );
+
+  const env = program.command("env").description("Manage an app's env vars and secrets");
+
+  env
+    .command("set")
+    .description("Set env vars (KEY=value ...). The app restarts with them.")
+    .argument("<app>", "App slug or id")
+    .argument("<assignments...>", "KEY=value pairs")
+    .option("--secret", "Store these values write-only: they can never be read back")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, assignments: string[], opts: { secret?: boolean; config: string }) => {
+        const vars = parseAssignments(assignments);
+        const out = await setEnv({ app, vars, secret: opts.secret === true, configPath: opts.config });
+        console.log(`Set ${Object.keys(vars).join(", ")} on ${app}${opts.secret ? " (secret)" : ""}`);
+        console.log(out.applied === "redeployed" ? "App restarted with the new env." : "Applies on the next publish.");
+      }),
+    );
+
+  env
+    .command("unset")
+    .description("Remove env vars")
+    .argument("<app>", "App slug or id")
+    .argument("<keys...>", "Keys to remove")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, keys: string[], opts: { config: string }) => {
+        await unsetEnv({ app, keys, configPath: opts.config });
+        console.log(`Removed ${keys.join(", ")} from ${app}`);
+      }),
+    );
+
+  env
+    .command("ls")
+    .description("List env vars (secret values are never shown)")
+    .argument("<app>", "App slug or id")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, opts: { config: string }) => {
+        for (const e of await listEnv({ app, configPath: opts.config })) {
+          console.log(e.secret ? `${e.key}=<secret>` : `${e.key}=${e.value}`);
         }
       }),
     );

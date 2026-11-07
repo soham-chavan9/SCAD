@@ -8,7 +8,7 @@ export type ClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
-async function client(opts: ClientOptions): Promise<ScadClient> {
+export async function client(opts: ClientOptions): Promise<ScadClient> {
   const config = await loadConfig(opts.configPath);
   const apiUrl = opts.apiUrl ?? config?.apiUrl;
   const pat = opts.pat ?? config?.pat;
