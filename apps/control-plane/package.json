@@ -32,6 +32,8 @@
     "@scad/api-client": "workspace:*",
     "@scad/builder": "workspace:*",
     "@scad/cli": "workspace:*",
+    "@types/dockerode": "4.0.2",
+    "dockerode": "5.0.1",
     "drizzle-kit": "0.31.5",
     "tsx": "4.20.6"
   }

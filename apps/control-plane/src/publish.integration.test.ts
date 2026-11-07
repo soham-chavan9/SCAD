@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { ScadApiError } from "@scad/api-client";
 import { Builder } from "@scad/builder";
 import { loginWithDeviceCode, publishDir } from "@scad/cli";
+import Docker from "dockerode";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
@@ -140,6 +141,45 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
         .where(eq(releases.id, result.releaseId))
         .limit(1);
       expect(release?.status).toBe("ready");
+    },
+    300_000,
+  );
+
+  it(
+    "scad.json drives port, start command, env, and resources (T1.5)",
+    async () => {
+      // CMD listens on 8080; only the manifest start argv moves it to 3000.
+      const dir = await writeFixture(dataDir, {
+        Dockerfile:
+          "FROM node:22-alpine\nUSER node\nWORKDIR /home/node\nCOPY server.js .\nCMD [\"node\", \"server.js\"]\n",
+        "server.js": [
+          "const http = require('node:http');",
+          "const port = process.argv.includes('--mode=manifest') ? 3000 : 8080;",
+          "http.createServer((_q, r) => r.end(process.env.GREETING ?? 'none')).listen(port, '0.0.0.0');",
+        ].join("\n"),
+        "scad.json": JSON.stringify({
+          name: "manifest-app",
+          port: 3000,
+          start: "node server.js --mode=manifest",
+          env: { GREETING: "hi from scad.json" },
+          resources: { memory_mb: 256 },
+        }),
+      });
+
+      const result = await publishDir({ dir, name: "manifest-app", configPath, pollMs: 300 });
+      appIds.push(result.appId);
+
+      const [machine] = await dbBundle.db
+        .select()
+        .from(machines)
+        .where(eq(machines.appId, result.appId))
+        .limit(1);
+      const info = await new Docker().getContainer(machine!.providerId).inspect();
+      expect(info.State.Running).toBe(true);
+      expect(info.Config.Entrypoint).toEqual(["node", "server.js", "--mode=manifest"]);
+      expect(info.Config.Env).toContain("GREETING=hi from scad.json");
+      expect(info.HostConfig.Memory).toBe(256 * 1024 * 1024);
+      expect(Object.keys(info.Config.ExposedPorts ?? {})).toContain("3000/tcp");
     },
     300_000,
   );

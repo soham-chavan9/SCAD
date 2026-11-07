@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyManifestDefaults, parseManifest } from "./manifest.js";
+import { applyManifestDefaults, describeManifestIssues, parseManifest } from "./manifest.js";
 
 describe("manifest schema", () => {
   it("accepts a valid full manifest", () => {
@@ -57,5 +57,33 @@ describe("manifest schema", () => {
     expect(defaults.resources.memory_mb).toBe(512);
     expect(defaults.resources.disk_gb).toBe(1);
     expect(defaults.frame_ancestors).toBe("self");
+  });
+});
+
+describe("manifest field-level errors (T1.5)", () => {
+  it("rejects env keys that are not valid variable names", () => {
+    for (const key of ["1ABC", "A-B", "A=B", "", "A B"]) {
+      const result = parseManifest({ env: { [key]: "x" } });
+      expect(result.success, `env key ${JSON.stringify(key)} should fail`).toBe(false);
+    }
+    expect(parseManifest({ env: { NODE_ENV: "production", _X1: "y" } }).success).toBe(true);
+  });
+
+  it("names the offending field in the hint", () => {
+    const result = parseManifest({ resources: { memory_mb: 4096 } });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const { hint, issues } = describeManifestIssues(result.error);
+    expect(issues[0]).toMatchObject({ path: "resources.memory_mb" });
+    expect(hint).toContain("resources.memory_mb");
+    expect(hint).toContain("1024");
+  });
+
+  it("names unknown keys in the hint", () => {
+    const result = parseManifest({ prot: 3000 });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const { hint } = describeManifestIssues(result.error);
+    expect(hint).toContain("prot");
   });
 });
