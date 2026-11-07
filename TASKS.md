@@ -109,10 +109,11 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: a counter app's data survives stop/start and redeploy; `remove` with `deleteVolume: false` keeps data; volume size limit enforced.
   - Tests: `packages/runtime-docker/src/volume.test.ts`. Docs: `docs/data-volume.md`. Size limit is **measured** (refuse start/deploy when over; `enforceVolumeQuota` stops a running app) because Docker local volumes have no hard quota. A periodic caller lands with the scheduler (T1.4/T2.5).
 
-- [ ] **T1.4 Idle stop and wake on request**
+- [x] **T1.4 Idle stop and wake on request**
   - Depends: T0.7. Files: control plane scheduler (`last_request_at`), `/internal/wake`, gateway wake page.
   - Steps: stop after 10 minutes without traffic unless pinned; single-flight wake so 50 concurrent requests cause one start.
   - Done when: stopped app serves the first request within 10 s; wake storm test shows exactly one `start` call; HTML navigations see the self-retrying page.
+  - Tests: `apps/control-plane/src/idle-wake.integration.test.ts`, `apps/gateway/src/wake.integration.test.ts`, `packages/runtime-docker/src/wake-latency.test.ts` (real Docker, ~2.7 s). Docs: `docs/idle-wake.md`. Adds `/internal/touch` (already in §8) and the control plane now holds a `RuntimeProvider`.
 
 - [ ] **T1.5 Manifest handling**
   - Depends: T0.5. Done when: `scad.json` fields drive port, start command, env, resources; invalid manifests return `MANIFEST_INVALID` with a field-level hint; defaults from §11 apply when absent.
