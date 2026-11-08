@@ -17,6 +17,7 @@ import { runMigrations } from "./db/migrate.js";
 import { appAccess, apps, machines, pats, users } from "./db/schema.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
 import { LOG_RETENTION_MS, pruneBuildLogs } from "./log-retention.js";
+import { appendRuntimeLogs } from "./logs/runtime-log-store.js";
 import { createDataPaths, ensureDataDirs } from "./storage.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
@@ -54,7 +55,7 @@ class LogRuntime implements RuntimeProvider {
   async remove(): Promise<void> {}
 }
 
-describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
+describe.runIf(Boolean(databaseUrl))("runtime logs route (T1.7, store-backed since T1.7b)", () => {
   let dbBundle: Db;
   let app: AppInstance;
   let baseUrl: string;
@@ -62,6 +63,7 @@ describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
   let ownerToken: string;
   let viewerToken: string;
   let strangerToken: string;
+  let logAppId: string;
 
   async function userWithPat(email: string, handle: string) {
     const [u] = await dbBundle.db.insert(users).values({ email, handle }).returning();
@@ -78,7 +80,7 @@ describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
     dbBundle = createDb(databaseUrl);
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        env_vars, app_access, magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+        runtime_logs, env_vars, app_access, magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
     const owner = await userWithPat("owner@example.com", "owner");
@@ -92,6 +94,7 @@ describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
         { slug: "never-deployed", ownerId: owner.id, status: "building" },
       ])
       .returning();
+    logAppId = a!.id;
     await dbBundle.db.insert(machines).values({ appId: a!.id, providerId: "p", state: "running" });
     await dbBundle.db.insert(appAccess).values({ appId: a!.id, email: "viewer@example.com", grantedBy: owner.id });
 
@@ -110,7 +113,11 @@ describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
 
   const logsUrl = (slug: string, query = "") => `${baseUrl}/v1/apps/${slug}/logs${query}`;
 
-  it("returns recent lines as server-sent events and ends", async () => {
+  it("returns recent lines from the log store as server-sent events and ends", async () => {
+    await appendRuntimeLogs(
+      dbBundle.db,
+      ["line one", "line two"].map((line) => ({ appId: logAppId, providerId: "p", line })),
+    );
     const res = await fetch(logsUrl("log-app", "?tail=20"), {
       headers: { authorization: `Bearer ${ownerToken}` },
     });
@@ -120,31 +127,30 @@ describe.runIf(Boolean(databaseUrl))("runtime logs (T1.7)", () => {
     expect(body).toContain("data: line one\n\n");
     expect(body).toContain("data: line two\n\n");
     expect(body).toContain("event: end");
-    expect(runtime.lastOpts).toEqual({ follow: false, tail: 20 });
+    // Read from SCAD's store, not the runtime.
+    expect(runtime.lastOpts).toBeNull();
   });
 
-  it("follow streams live lines and stops reading when the client disconnects", async () => {
-    const closedBefore = runtime.streamsClosed;
+  it("follow streams lines as they land in the store and stops when the client disconnects", async () => {
     const controller = new AbortController();
-    const res = await fetch(logsUrl("log-app", "?follow=1"), {
+    const res = await fetch(logsUrl("log-app", "?follow=1&tail=0"), {
       headers: { authorization: `Bearer ${ownerToken}` },
       signal: controller.signal,
     });
     expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
+    await appendRuntimeLogs(dbBundle.db, [{ appId: logAppId, providerId: "p", line: "live one" }]);
     let text = "";
-    while (!text.includes("line 4")) {
+    while (!text.includes("live one")) {
       const { value, done } = await reader.read();
       if (done) break;
       text += decoder.decode(value);
     }
-    expect(text).toContain("data: line 3\n\n");
-    expect(runtime.lastOpts?.follow).toBe(true);
+    expect(text).toContain("data: live one\n\n");
+    expect(text).not.toContain("line one");
     controller.abort();
     await reader.cancel().catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(runtime.streamsClosed).toBe(closedBefore + 1);
   });
 
   it("only the owner can read logs (viewers and strangers get 404)", async () => {
