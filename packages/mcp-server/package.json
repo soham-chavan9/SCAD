@@ -11,6 +11,17 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node --import tsx src/bin.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@scad/api-client": "workspace:*",
+    "@scad/cli": "workspace:*",
+    "@scad/shared": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "bin": {
+    "scad-mcp": "./src/bin.ts"
   }
 }
