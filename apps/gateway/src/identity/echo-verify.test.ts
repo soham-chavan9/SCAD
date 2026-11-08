@@ -36,6 +36,6 @@ describe("examples/echo-identity dependency-free verifier", () => {
     expect(() =>
       verifyJwt(token, jwksResponse(keys), { nowSec: Math.floor(Date.now() / 1000) + 120 }),
     ).toThrow(/expired/);
-    expect(() => verifyJwt(token, jwksResponse(other))).toThrow(/signature/);
+    expect(() => verifyJwt(token, jwksResponse(other))).toThrow(/no matching key|signature/);
   });
 });

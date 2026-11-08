@@ -251,6 +251,8 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
       headers: { host: auth },
     });
     expect(jwksRes.statusCode).toBe(200);
+    // T1.9: apps may cache the JWKS for 5 minutes; rotation keeps old keys listed longer than that.
+    expect(jwksRes.headers["cache-control"]).toBe("public, max-age=300");
     const jwks = createLocalJWKSet(jwksRes.json());
     const { payload } = await jwtVerify(body.identity, jwks, {
       issuer: `http://${auth}`,
