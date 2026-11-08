@@ -40,6 +40,10 @@ examples/      hello-node (more later)
 docs/          pointers to AGENTS.md / TASKS.md; more docs later
 ```
 
+## Agents (MCP)
+
+Run `scad login`, then point your agent at the `scad-mcp` stdio server: see `docs/mcp.md`.
+
 ## Common commands
 
 | Command              | Purpose                |

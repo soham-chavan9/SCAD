@@ -128,10 +128,11 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Depends: T0.4. Done when: `scad logs <app> -f` streams live stdout/stderr; non-owners cannot read logs; 7-day retention job.
   - Tests: `packages/runtime-docker/src/logs-stream.test.ts` (real Docker follow), `apps/control-plane/src/logs.integration.test.ts` (SSE, INV10, disconnect, retention job), `packages/cli/src/logs.test.ts`. Docs: `docs/logs.md`. Runtime logs (T1.7b): collected into the control plane's `runtime_logs` table, which `scad logs` reads; a daily job deletes rows older than 7 days (`apps/control-plane/src/runtime-log-store.integration.test.ts`). Docker json-file is a 2x1 MB rotating buffer only. Build logs: daily 7-day prune.
 
-- [ ] **T1.8 MCP server**
+- [x] **T1.8 MCP server**
   - Depends: T0.5, T1.2, T1.6, T1.7. Files: `packages/mcp-server`.
   - Steps: tools `publish`, `list_apps`, `get_app`, `share`, `unshare`, `set_env`, `get_logs`, `delete_app`. Descriptions must state purpose, inputs, and error meanings. Errors pass through the §8 envelope including `hint`.
   - Done when: a scripted agent session publishes `examples/hello-node` and shares it using only MCP tools; a forced build error gives the agent enough in `hint` + `log_tail` to fix and retry successfully.
+  - Tests: `tests/e2e/src/mcp-agent.test.ts` (real Docker), `packages/mcp-server/src/server.test.ts`, `apps/builder/src/build-hint.test.ts`, `apps/control-plane/src/delete-app.integration.test.ts`. Docs: `docs/mcp.md`. Also lands §8 `DELETE /v1/apps/:id` (needed by `delete_app`) and a network-aware `BUILD_FAILED` hint.
 
 - [ ] **T1.9 Identity token hardening**
   - Depends: T0.7. Done when: JWT rotation via `kid` supported; key rotation test passes; sample verifying snippet in `docs/identity.md`.
