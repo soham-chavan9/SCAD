@@ -27,13 +27,32 @@ const envKeySchema = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "env keys must match [A-Za-z_][A-Za-z0-9_]* (max 128 chars)");
 
+/** Suffixes that only name private or local things; never valid egress targets. */
+const PRIVATE_TLDS = new Set(["internal", "local", "localhost", "arpa", "home", "lan", "corp", "intranet"]);
+
+/**
+ * An egress domain: a lowercase public hostname, optionally `*.` for its
+ * subdomains (T2.1). IP literals, ports, schemes, and private names are refused.
+ */
+export const egressDomainSchema = z
+  .string()
+  .max(253)
+  .refine((value) => {
+    const host = value.startsWith("*.") ? value.slice(2) : value;
+    const labels = host.split(".");
+    if (labels.length < 2) return false;
+    if (!labels.every((l) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(l))) return false;
+    const tld = labels[labels.length - 1] ?? "";
+    return /^[a-z]{2,63}$/.test(tld) && !PRIVATE_TLDS.has(tld);
+  }, "egress entries must be lowercase public hostnames like api.github.com or *.googleapis.com (no IPs, ports, or schemes)");
+
 export const manifestSchema = z
   .object({
     name: slugSchema.optional(),
     port: portSchema.optional(),
     start: z.string().min(1).optional(),
     env: z.record(envKeySchema, z.string().max(32_768, "env values are limited to 32 KB")).optional(),
-    egress: z.array(z.string().min(1)).optional(),
+    egress: z.array(egressDomainSchema).max(50, "at most 50 egress domains").optional(),
     resources: z
       .object({
         memory_mb: z
