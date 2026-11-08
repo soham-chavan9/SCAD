@@ -107,7 +107,7 @@ export async function buildApp(opts: BuildAppOptions) {
     ...(opts.masterKeys ? { masterKeys: opts.masterKeys } : {}),
     ...(machines ? { machines } : {}),
   });
-  await app.register(logsRoutes, { db: opts.db, ...(machines ? { machines } : {}) });
+  await app.register(logsRoutes, { db: opts.db });
   await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {

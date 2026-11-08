@@ -1,5 +1,7 @@
 import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import type { Db } from "./db/client.js";
+import { pruneRuntimeLogs } from "./logs/runtime-log-store.js";
 import type { DataPaths } from "./storage.js";
 
 /** AGENTS §14: keep logs 7 days. */
@@ -7,7 +9,7 @@ export const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Delete build logs last written more than `maxAgeMs` ago. Runtime logs live
- * in Docker (rotated by size; the driver serves only the last 7 days).
+ * in the `runtime_logs` table and are deleted by `pruneRuntimeLogs`.
  */
 export async function pruneBuildLogs(
   paths: DataPaths,
@@ -39,13 +41,17 @@ export async function pruneBuildLogs(
   return { deleted };
 }
 
-/** Run `pruneBuildLogs` now and then daily. Returns a stop function. */
+/**
+ * Run the 7-day retention now and then daily: deletes old build log files
+ * and, when `db` is given, old rows in `runtime_logs`. Returns a stop function.
+ */
 export function startLogRetention(
   paths: DataPaths,
-  opts: { intervalMs?: number; onError?: (err: unknown) => void } = {},
+  opts: { db?: Db["db"]; intervalMs?: number; onError?: (err: unknown) => void } = {},
 ): () => void {
   const run = () => {
     pruneBuildLogs(paths).catch((err: unknown) => opts.onError?.(err));
+    if (opts.db) pruneRuntimeLogs(opts.db).catch((err: unknown) => opts.onError?.(err));
   };
   run();
   const timer = setInterval(run, opts.intervalMs ?? 24 * 60 * 60 * 1000);

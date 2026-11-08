@@ -34,12 +34,13 @@ export type DockerRuntimeOptions = {
 /** AGENTS §14 default log retention. */
 export const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /**
- * Docker keeps at most 3 x 10 MB of logs per container. json-file has no
- * time-based retention, so the 7-day window is applied when logs are read.
+ * Docker keeps only a small rotating buffer (2 x 1 MB) per container. The
+ * control plane copies output into its own store, where retention is a real
+ * 7-day delete; the `since` window below only bounds what that copy reads.
  */
 export const APP_LOG_CONFIG = {
   Type: "json-file",
-  Config: { "max-size": "10m", "max-file": "3" },
+  Config: { "max-size": "1m", "max-file": "2" },
 } as const;
 
 const DEFAULT_GATEWAY_CONTAINER = "scad-gateway";

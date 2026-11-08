@@ -33,6 +33,15 @@ export async function loadRuntimeEnv(
   return env;
 }
 
+/** Decrypted values of the app's secret vars, used only to redact them from stored logs (INV12). */
+export async function loadSecretValues(db: Db["db"], keys: MasterKeyRing, appId: string): Promise<string[]> {
+  const rows = await db
+    .select()
+    .from(envVars)
+    .where(and(eq(envVars.appId, appId), eq(envVars.isSecret, true)));
+  return rows.map((row) => decryptEnvValue(keys, { appId, key: row.key }, row.valueCiphertext));
+}
+
 /**
  * Upsert (`string`) or delete (`null`) vars. A key listed in `secretKeys`
  * becomes secret; a key that is already secret stays secret.

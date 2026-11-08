@@ -13,6 +13,8 @@ export type MachineControllerOpts = {
   runtime: RuntimeProvider;
   now?: () => Date;
   idleMs?: number;
+  /** Told when a machine is (re)started so its output is collected at once (T1.7b). */
+  onMachineRunning?: (appId: string, providerId: string) => void;
 };
 
 type Op = { kind: "wake" | "stop" | "deploy"; done: Promise<unknown> };
@@ -27,12 +29,14 @@ export class MachineController {
   readonly #now: () => Date;
   readonly #idleMs: number;
   readonly #ops = new Map<string, Op>();
+  readonly #onMachineRunning: (appId: string, providerId: string) => void;
 
   constructor(opts: MachineControllerOpts) {
     this.#db = opts.db;
     this.#runtime = opts.runtime;
     this.#now = opts.now ?? (() => new Date());
     this.#idleMs = opts.idleMs ?? IDLE_STOP_MS;
+    this.#onMachineRunning = opts.onMachineRunning ?? (() => undefined);
   }
 
   /** Start the app's machine if it is stopped. Resolves once the runtime reports it started. */
@@ -99,20 +103,8 @@ export class MachineController {
       .update(apps)
       .set({ status: "running" })
       .where(and(eq(apps.id, appId), eq(apps.status, "stopped")));
+    this.#onMachineRunning(appId, machine.providerId);
     return true;
-  }
-
-  /** The app's runtime log lines (owner checks happen in the route). */
-  async logs(appId: string, opts: { follow: boolean; tail: number }): Promise<AsyncIterable<string>> {
-    const [row] = await this.#db
-      .select({ providerId: machines.providerId })
-      .from(machines)
-      .where(eq(machines.appId, appId))
-      .limit(1);
-    if (!row?.providerId) {
-      throw new ApiError(404, "NOT_FOUND", "App has no running release yet", "Publish the app with `scad publish`, then retry.");
-    }
-    return this.#runtime.logs({ appId, providerId: row.providerId }, opts);
   }
 
   /** Record traffic: keeps the app awake and marks it viewed. */
@@ -206,6 +198,7 @@ export class MachineController {
       }
     }
 
+    this.#onMachineRunning(appId, row.providerId);
     const now = this.#now();
     await this.#db
       .update(machines)

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   customType,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -194,4 +196,28 @@ export const envVars = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.appId, t.key] })],
+);
+
+/**
+ * Runtime stdout/stderr lines collected from app containers (T1.7b). The
+ * control plane owns this store so retention is a real delete: a daily job
+ * removes rows older than 7 days (AGENTS §14). Secret env values are redacted
+ * before insert (INV12). Rows go away with their app.
+ */
+export const runtimeLogs = pgTable(
+  "runtime_logs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    line: text("line").notNull(),
+  },
+  (t) => [
+    index("runtime_logs_app_id_id_idx").on(t.appId, t.id),
+    index("runtime_logs_app_provider_idx").on(t.appId, t.providerId),
+    index("runtime_logs_at_idx").on(t.at),
+  ],
 );

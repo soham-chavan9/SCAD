@@ -1,13 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
+import { machines } from "../db/schema.js";
 import { ApiError } from "../errors.js";
-import type { MachineController } from "../machines/controller.js";
+import { lastRuntimeLogId, recentRuntimeLogs, runtimeLogsAfter } from "../logs/runtime-log-store.js";
 import { findOwnedApp } from "./share.js";
 
 export type LogsRoutesOpts = {
   db: Db["db"];
-  machines?: MachineController;
+  /** How often `-f` checks the store for new lines. */
+  followPollMs?: number;
 };
 
 const query = z.object({
@@ -24,19 +27,32 @@ function sseData(line: string): string {
 }
 
 export const logsRoutes: FastifyPluginAsync<LogsRoutesOpts> = async (app, opts) => {
-  /** §8: SSE runtime log. Owner only (INV10); shared viewers get 404 like strangers. */
+  const pollMs = opts.followPollMs ?? 300;
+
+  /**
+   * §8: SSE runtime log, read from SCAD's runtime log store (T1.7b).
+   * Owner only (INV10); shared viewers get 404 like strangers.
+   */
   app.get<{ Params: { idOrSlug: string } }>("/v1/apps/:idOrSlug/logs", async (request, reply) => {
     const owned = await findOwnedApp(opts.db, request.user.id, request.params.idOrSlug);
     const parsed = query.safeParse(request.query);
     if (!parsed.success) {
       throw new ApiError(400, "VALIDATION_FAILED", "Invalid logs query", "Use ?follow=1 and ?tail=N (0 to 10000).");
     }
-    if (!opts.machines) {
-      throw new ApiError(503, "INTERNAL", "Logs are not available on this instance", "Start the control plane with a runtime.");
-    }
     const follow = parsed.data.follow === "1" || parsed.data.follow === "true";
-    // Throws NOT_FOUND (no machine yet) before any bytes are sent.
-    const lines = await opts.machines.logs(owned.id, { follow, tail: parsed.data.tail });
+
+    const initial = await recentRuntimeLogs(opts.db, owned.id, parsed.data.tail);
+    if (initial.length === 0) {
+      const [machine] = await opts.db
+        .select({ providerId: machines.providerId })
+        .from(machines)
+        .where(eq(machines.appId, owned.id))
+        .limit(1);
+      if (!machine?.providerId) {
+        throw new ApiError(404, "NOT_FOUND", "App has no running release yet", "Publish the app with `scad publish`, then retry.");
+      }
+    }
+    let lastId = initial.at(-1)?.id ?? (follow ? await lastRuntimeLogId(opts.db, owned.id) : 0);
 
     reply.hijack();
     const raw = reply.raw;
@@ -47,22 +63,28 @@ export const logsRoutes: FastifyPluginAsync<LogsRoutesOpts> = async (app, opts) 
       "x-accel-buffering": "no",
     });
 
-    const iterator = lines[Symbol.asyncIterator]();
     let closed = false;
     raw.on("close", () => {
       closed = true;
-      // Ends the runtime stream once its pending read settles.
-      void iterator.return?.();
     });
-    const heartbeat = follow ? setInterval(() => raw.write(": keepalive\n\n"), HEARTBEAT_MS) : undefined;
+    for (const row of initial) raw.write(sseData(row.line));
+    if (!follow) {
+      raw.write("event: end\ndata: \n\n");
+      raw.end();
+      return;
+    }
 
+    const heartbeat = setInterval(() => raw.write(": keepalive\n\n"), HEARTBEAT_MS);
     try {
       while (!closed) {
-        const next = await iterator.next();
-        if (next.done) break;
-        if (!closed) raw.write(sseData(next.value));
+        const rows = await runtimeLogsAfter(opts.db, owned.id, lastId);
+        for (const row of rows) {
+          if (closed) break;
+          raw.write(sseData(row.line));
+          lastId = row.id;
+        }
+        if (rows.length === 0) await new Promise((r) => setTimeout(r, pollMs));
       }
-      if (!closed) raw.write("event: end\ndata: \n\n");
     } catch {
       if (!closed) raw.write("event: error\ndata: log stream failed\n\n");
     } finally {
