@@ -25,6 +25,9 @@ async function main(): Promise<void> {
       ? { privateKeyPem: process.env["JWT_PRIVATE_KEY"] }
       : {}),
     ...(process.env["JWT_PUBLIC_KEY"] ? { publicKeyPem: process.env["JWT_PUBLIC_KEY"] } : {}),
+    ...(process.env["JWT_PREVIOUS_PUBLIC_KEY"]
+      ? { previousPublicKeysPem: process.env["JWT_PREVIOUS_PUBLIC_KEY"] }
+      : {}),
   });
 
   const identity = fakeAuth

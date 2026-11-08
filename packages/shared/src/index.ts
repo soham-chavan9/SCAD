@@ -43,12 +43,14 @@ export {
 
 export {
   generateEd25519KeyPair,
+  identityKeyId,
   IDENTITY_JWT_TTL_SECONDS,
   importPrivateKeyPem,
   importPublicKeyPem,
   normalizePemFromEnv,
   signIdentityJwt,
   verifyIdentityJwt,
+  verifyIdentityJwtWithJwks,
   type IdentityClaims,
   type SignIdentityOptions,
   type VerifiedIdentity,
