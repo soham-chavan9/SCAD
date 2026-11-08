@@ -17,7 +17,7 @@ The driver sets `HTTP_PROXY`, `HTTPS_PROXY` (and lowercase forms) to
 `http://scad-egress:3128` in every app container. An app's own env can't
 override them. Most HTTP clients pick these up (curl, Python `requests`,
 Go). Node's `fetch` does not by default: use `undici`'s `EnvHttpProxyAgent`, or
-start Node 24+ with `NODE_USE_ENV_PROXY=1`.
+on recent Node releases set `NODE_USE_ENV_PROXY=1`.
 
 - HTTPS: `CONNECT host:443` (port 443 only).
 - Plain HTTP: absolute-form requests to port 80.
