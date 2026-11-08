@@ -144,10 +144,11 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 ## M2: Beta. A friend publishes unaided, and the platform is safe to trust (weeks 5 to 6)
 
-- [ ] **T2.1 Egress proxy and network policy**
+- [x] **T2.1 Egress proxy and network policy**
   - Depends: T0.4. Files: `apps/egress-proxy`, runtime-docker network wiring.
   - Steps: app networks stay `internal: true`; the egress proxy container is attached to each app network and to an external network; apps get `HTTP_PROXY`/`HTTPS_PROXY` env; proxy identifies the app by source IP, applies that app's allowlist (manifest `egress` filtered by operator policy), resolves DNS itself, blocks private/loopback/link-local/metadata ranges after resolution.
   - Done when (INV1, INV2): adversarial app cannot reach undeclared hosts, `169.254.169.254`, the host gateway IP, other apps, or the Docker socket; allowed domain works; DNS rebinding test fails to reach private IPs.
+  - Tests: `tests/adversarial/src/inv2-egress-proxy.test.ts` (real Docker), `apps/egress-proxy/src/proxy.test.ts`, manifest egress validation in `packages/shared/src/manifest.test.ts`. Docs: `docs/egress.md`. Operator approval is `EGRESS_ALLOWED_DOMAINS` on the proxy (default empty = deny all). The builder's smoke check still runs off the app network (see build-schedule); that moves to T2.2.
 
 - [ ] **T2.2 Hardened container profile and optional gVisor**
   - Depends: T0.4. Done when: runtime test inspects container config for non-root, read-only rootfs, caps dropped, limits set (INV6); `runsc` used automatically when installed and documented when not; fork bomb and memory hog sample apps are contained.
