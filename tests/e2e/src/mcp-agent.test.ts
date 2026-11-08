@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -14,6 +15,8 @@ import { createScadMcpServer } from "@scad/mcp-server";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 
 const databaseUrl = process.env["DATABASE_URL"];
+/** Repo root, independent of the working directory vitest runs from. */
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 type ToolText = { content: { type: string; text: string }[]; isError?: boolean };
 
@@ -102,7 +105,7 @@ describe.runIf(Boolean(databaseUrl))("MCP agent session (T1.8, real Docker)", ()
   it(
     "publishes examples/hello-node and shares it using only MCP tools",
     async () => {
-      const published = await call("publish", { dir: join(process.cwd(), "examples/hello-node"), name: "hello-node" });
+      const published = await call("publish", { dir: join(REPO_ROOT, "examples/hello-node"), name: "hello-node" });
       expect(published.isError).toBe(false);
       expect(published.body).toMatchObject({ url: "http://hello-node.agent.localhost:8080" });
       appIds.push(String(published.body["app_id"]));

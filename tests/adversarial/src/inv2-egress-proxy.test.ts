@@ -4,7 +4,8 @@ import { lookup } from "node:dns/promises";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { newId } from "@scad/shared";
@@ -12,6 +13,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const docker = (...args: string[]) => execFileAsync("docker", args, { maxBuffer: 10 * 1024 * 1024 });
+
+/** apps/egress-proxy, independent of the working directory vitest runs from. */
+const PROXY_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../apps/egress-proxy");
 
 const APP_IMAGE = "scad-test/egress-app:1";
 const APP_DOCKERFILE = [
@@ -83,7 +87,7 @@ describe("egress proxy and network policy (INV1, INV2, real Docker)", () => {
   beforeAll(async () => {
     online = await internetAvailable();
     policyDir = await mkdtemp(join(tmpdir(), "scad-egress-policy-"));
-    await docker("build", "-q", "-t", `scad-test/egress-proxy:${suffix}`, "-f", "apps/egress-proxy/Dockerfile", "apps/egress-proxy");
+    await docker("build", "-q", "-t", `scad-test/egress-proxy:${suffix}`, "-f", join(PROXY_DIR, "Dockerfile"), PROXY_DIR);
     await execFileAsync("sh", ["-c", `printf '%s' "$DF" | docker build -q --network=none -t ${APP_IMAGE} -`], {
       env: { ...process.env, DF: APP_DOCKERFILE },
     });
