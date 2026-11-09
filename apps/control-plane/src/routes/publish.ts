@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, max } from "drizzle-orm";
+import { and, eq, inArray, max, sql } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import {
   AppUrlError,
@@ -17,12 +17,35 @@ import { readRootScadJson, ScadJsonTooLargeError } from "../manifest-from-tarbal
 import { saveTarball, type DataPaths } from "../storage.js";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** AGENTS §14: 10 live apps per builder (this instance). */
+export const MAX_LIVE_APPS = 10;
+/** Statuses that hold a slot; deleted and expired apps free theirs. */
+const LIVE_STATUSES = ["building", "running", "stopped", "suspended"] as const;
+/** Serializes the live-app count + insert across concurrent publishes. */
+const LIVE_APPS_LOCK_KEY = 0x5cad_0001;
 
 export type PublishRoutesOpts = {
   db: Db["db"];
   paths: DataPaths;
   baseDomain: string;
+  /** Override for tests; defaults to {@link MAX_LIVE_APPS}. */
+  maxLiveApps?: number;
 };
+
+function liveAppLimitExceeded(liveApps: number, maxLiveApps: number): ApiError {
+  return new ApiError(
+    403,
+    "LIMIT_EXCEEDED",
+    `This SCAD instance already has ${liveApps} live apps (limit ${maxLiveApps})`,
+    "Delete an app you no longer need (MCP delete_app, or DELETE /v1/apps/:id), or republish an existing app under its current name, then retry. An operator can raise the limit.",
+    { live_apps: liveApps, max_live_apps: maxLiveApps },
+  );
+}
+
+/** Resource requests over their §11 cap are a limit, not a typo. */
+function isOverCap(issue: { code: string; path: PropertyKey[] }): boolean {
+  return issue.code === "too_big" && issue.path[0] === "resources";
+}
 
 function manifestInvalid(message: string, hint: string, details: Record<string, unknown> = {}): ApiError {
   return new ApiError(400, "MANIFEST_INVALID", message, hint, details);
@@ -42,6 +65,16 @@ function parseManifestText(text: string, source: "scad.json" | "manifest field")
   const parsed = parseManifest(json);
   if (!parsed.success) {
     const { issues, hint } = describeManifestIssues(parsed.error);
+    if (parsed.error.issues.some(isOverCap)) {
+      const capped = issues.filter((_, i) => isOverCap(parsed.error.issues[i]!));
+      throw new ApiError(
+        400,
+        "LIMIT_EXCEEDED",
+        `${source} asks for more than the platform allows`,
+        `Lower ${capped.map((c) => `"${c.path}" (${c.message})`).join(" and ")} in scad.json, then republish. Defaults are 512 MB memory and 1 GB disk.`,
+        { source, issues: capped },
+      );
+    }
     throw manifestInvalid(`${source} failed validation`, hint, { source, issues });
   }
   return parsed.data;
@@ -130,26 +163,33 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
       throw new ApiError(401, "UNAUTHENTICATED", "User not found", "Run `scad login` again.");
     }
 
-    let [appRow] = await opts.db
-      .select()
-      .from(apps)
-      .where(and(eq(apps.ownerId, ownerId), eq(apps.slug, slugCandidate)))
-      .limit(1);
-
-    if (!appRow) {
-      [appRow] = await opts.db
-        .insert(apps)
-        .values({
-          slug: slugCandidate,
-          ownerId,
-          status: "building",
-          visibility: "allowlist",
-        })
-        .returning();
-    } else {
-      await opts.db.update(apps).set({ status: "building" }).where(eq(apps.id, appRow.id));
-      appRow = { ...appRow, status: "building" };
-    }
+    const maxLiveApps = opts.maxLiveApps ?? MAX_LIVE_APPS;
+    const appRow = await opts.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(apps)
+        .where(and(eq(apps.ownerId, ownerId), eq(apps.slug, slugCandidate)))
+        .limit(1);
+      const takesNewSlot = !existing || existing.status === "deleted" || existing.status === "expired";
+      if (takesNewSlot) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${LIVE_APPS_LOCK_KEY})`);
+        const [row] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(apps)
+          .where(inArray(apps.status, [...LIVE_STATUSES]));
+        const liveApps = row?.n ?? 0;
+        if (liveApps >= maxLiveApps) throw liveAppLimitExceeded(liveApps, maxLiveApps);
+      }
+      if (!existing) {
+        const [created] = await tx
+          .insert(apps)
+          .values({ slug: slugCandidate, ownerId, status: "building", visibility: "allowlist" })
+          .returning();
+        return created;
+      }
+      await tx.update(apps).set({ status: "building" }).where(eq(apps.id, existing.id));
+      return { ...existing, status: "building" as const };
+    });
 
     if (!appRow) {
       throw new ApiError(500, "INTERNAL", "Failed to create app", "Retry publish.");

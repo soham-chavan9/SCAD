@@ -42,6 +42,8 @@ export type BuildAppOptions = {
   machines?: MachineController;
   /** Clock override (tests). */
   now?: () => Date;
+  /** Live-app cap (T2.3); defaults to AGENTS §14's 10. */
+  maxLiveApps?: number;
   /** MASTER_KEY (+ previous keys during rotation) for env var encryption (T1.6). */
   masterKeys?: MasterKeyRing;
 };
@@ -110,7 +112,12 @@ export async function buildApp(opts: BuildAppOptions) {
   });
   await app.register(logsRoutes, { db: opts.db });
   await app.register(deleteAppRoutes, { db: opts.db, ...(machines ? { machines } : {}) });
-  await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
+  await app.register(publishRoutes, {
+    db: opts.db,
+    paths,
+    baseDomain,
+    ...(opts.maxLiveApps !== undefined ? { maxLiveApps: opts.maxLiveApps } : {}),
+  });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {
     db: opts.db,
