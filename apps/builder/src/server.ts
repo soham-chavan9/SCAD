@@ -1,3 +1,4 @@
+import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { Builder } from "./builder.js";
 import { scrubPlatformSecrets } from "./docker-build.js";
 
@@ -8,9 +9,15 @@ async function main(): Promise<void> {
   // INV8: the builder runs untrusted builds; hold no platform secrets in env.
   scrubPlatformSecrets(process.env);
 
+  const runtime = new DockerRuntimeProvider();
+  // Fails fast when SCAD_OCI_RUNTIME=runsc and gVisor is not installed.
+  const oci = await runtime.ociRuntime();
+  console.log(`builder: apps run under ${oci ?? "Docker's default runtime (runc; gVisor not installed)"}`);
+
   const builder = new Builder({
     controlPlaneUrl,
     internalToken,
+    runtime,
   });
 
   console.log(`builder polling ${controlPlaneUrl} every ${pollMs}ms`);
