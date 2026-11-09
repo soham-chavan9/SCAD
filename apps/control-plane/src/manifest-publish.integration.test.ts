@@ -124,7 +124,8 @@ describe.runIf(Boolean(databaseUrl))("manifest handling on publish (T1.5)", () =
   it("returns MANIFEST_INVALID with a field-level hint for a bad field", async () => {
     const res = await publish({
       Dockerfile: dockerfile,
-      "scad.json": JSON.stringify({ resources: { memory_mb: 4096 } }),
+      // Over-cap values are LIMIT_EXCEEDED since T2.3 (limits.integration.test.ts).
+      "scad.json": JSON.stringify({ resources: { memory_mb: 0 } }),
     });
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ code: "MANIFEST_INVALID" });
