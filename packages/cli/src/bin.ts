@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 
   program
     .command("publish")
-    .description("Publish a directory with a Dockerfile")
+    .description("Publish a directory (Dockerfile, or package.json / requirements.txt / index.html)")
     .argument("[dir]", "Directory to publish", ".")
     .option("--name <slug>", "App slug override")
     .option("--config <path>", "Config path", defaultConfigPath())

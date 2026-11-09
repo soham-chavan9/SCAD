@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deploySpecFromManifest, makeError } from "@scad/shared";
 import { DockerRuntimeProvider, RootImageError, VolumeQuotaExceededError } from "@scad/runtime-docker";
+import { AutodetectError, prepareBuildContext } from "./autodetect.js";
 import { buildFailedHint } from "./build-hint.js";
 import { BUILD_TIMEOUT_MS, dockerBuild, type BuildResult } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
@@ -105,6 +106,28 @@ export class Builder {
         await safeExtractTarball({ tarballPath: job.tarballPath, destDir: work });
       } catch (err) {
         if (err instanceof SafeExtractError) {
+          await this.#fail(job.releaseId, err.envelope);
+          return;
+        }
+        throw err;
+      }
+
+      // No Dockerfile: write one from a built-in template (T2.4). Port comes
+      // from the stored manifest; env is not needed (and not fetched) yet.
+      const { port: templatePort } = deploySpecFromManifest({
+        appId: job.appId,
+        imageRef: "",
+        manifest: job.manifest,
+        runtimeEnv: {},
+      });
+      try {
+        const { kind } = await prepareBuildContext(work, templatePort);
+        if (kind !== "dockerfile") {
+          await this.#log(job.releaseId, `no Dockerfile: using SCAD's built-in ${kind} template`);
+        }
+      } catch (err) {
+        if (err instanceof AutodetectError) {
+          await this.#log(job.releaseId, `auto-detect failed: ${err.message}`);
           await this.#fail(job.releaseId, err.envelope);
           return;
         }

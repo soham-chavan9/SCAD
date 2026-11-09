@@ -88,7 +88,9 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
     {
       description:
         "Publish a local directory as a private SCAD app and wait until it is live. The directory needs a " +
-        "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080); an " +
+        "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
+        "no Dockerfile and one of: package.json (Node; npm start / main / server.js), requirements.txt + app.py " +
+        "(Python; packages only as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An " +
         "optional scad.json sets name, port, start, env, and resources. Builds have NO network: dependencies must " +
         "be in the upload. Publishing an existing name replaces its release; if the new one fails, the old one " +
         "keeps serving. Inputs: dir (absolute path), name (optional slug, defaults to the folder name). Returns " +
