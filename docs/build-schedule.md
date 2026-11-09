@@ -287,6 +287,86 @@ docker network ls --format '{{.Name}}' | grep '^scad-net-' | xargs -n1 docker ne
 (Removing a network that still has a container fails harmlessly.) T2.5's
 orphan reaper should also reap networks.
 
+## Day 4 — 2026-11-09
+
+Docker Desktop was **not running** at the start of the run (`docker info`: no
+socket); the daily run ran `docker desktop start` and it came up in under a
+minute. `gh` is authenticated. None of the Day 1–3 PRs (#19–#30) are merged
+yet, so today's branches continue the stack:
+
+```
+task/t2-1-egress-proxy   #30
+ └─ task/t2-2-hardened-profile   #31
+     └─ task/t2-3-limits   #32
+         └─ task/t2-4-autodetect   #33
+             └─ task/t2-5-lifecycle   #34
+```
+
+| Task | Status | Branch | PR | Not verified / notes |
+|---|---|---|---|---|
+| T2.2 Hardened profile + gVisor | done | `task/t2-2-hardened-profile` | [#31](https://github.com/soham-chavan9/small-cloud/pull/31) | Real `runsc` not run: Docker Desktop for Mac has no gVisor (unit-tested only) |
+| T2.3 Limits and quotas | done | `task/t2-3-limits` | [#32](https://github.com/soham-chavan9/small-cloud/pull/32) | Live-app cap is instance-wide (see below) |
+| T2.4 Auto-detect builds | done | `task/t2-4-autodetect` | [#33](https://github.com/soham-chavan9/small-cloud/pull/33) | Installing from npm/PyPI is blocked (see Blocked) |
+| T2.5 Lifecycle jobs | done | `task/t2-5-lifecycle` | [#34](https://github.com/soham-chavan9/small-cloud/pull/34) | Expiry email not checked in Mailpit (fake mailer in tests) |
+
+### What changed
+
+- **T2.2**: one hardened profile (`hardenedHostConfig`) for deploy and smoke.
+  Adds no swap (`MemorySwap = Memory`) and `nodev` on `/tmp`.
+  - gVisor: `SCAD_OCI_RUNTIME=auto|runsc|runc`, default `auto` (uses `runsc`
+    when Docker lists it). The builder logs the choice at startup.
+  - **The smoke check now runs on the app's internal network** with the
+    deploy's profile, no egress proxy, and a throwaway tmpfs `/data`, probed
+    by a busybox helper. This closes the Day 2 finding. A positive-control
+    test shows the same probe app does leak on the default bridge.
+  - Root images get `BUILD_FAILED` with a USER hint, not
+    `PORT_NOT_LISTENING`.
+  - Hostile samples `examples/adversarial/fork-bomb` and `memory-hog` are
+    contained: pids stay at or under the limit, the hog is OOM-killed, and
+    the neighbour keeps serving. Docs: `docs/hardening.md`.
+- **T2.3**: the 11th live app gets `403 LIMIT_EXCEEDED` (advisory-locked
+  count; republish is never blocked). A 101 MB upload gets
+  `413 UPLOAD_TOO_LARGE`; **it used to be `500 INTERNAL`**. Over-cap
+  `memory_mb`/`disk_gb` gets `LIMIT_EXCEEDED`. Builds are killed after 10
+  minutes and return `BUILD_FAILED` (`timed_out`); BuildKit really cancels
+  the `RUN` step. Docs: `docs/limits.md`.
+- **T2.4**: built-in templates when there is no Dockerfile: `package.json` →
+  `node:22-alpine`, `requirements.txt` → `python:3.12-alpine` (vendored
+  `wheels/` install offline, tested for real), `index.html` → busybox
+  `httpd`. All run non-root and set `PORT`. New examples `hello-python` and
+  `hello-static`. MCP and CLI descriptions updated. Docs: `docs/autodetect.md`.
+- **T2.5**: publishing sets `expires_at` (it was never set before); views
+  renew it.
+  - Jobs: expiry notifier (daily email), expirer (10 min), 14-day grace
+    deleter, orphan reaper (hourly; flags, never auto-removes), usage roll-up
+    (hourly). Pinned apps are exempt.
+  - Migration 0006 adds `expiry_warned_at`, `usage_viewers`, `usage_daily`.
+  - Dependency: `nodemailer@10.2.1` in the control plane (same pin as the
+    gateway). Docs: `docs/lifecycle.md`.
+
+### Tests
+
+Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
+
+- `pnpm lint && pnpm typecheck`: green.
+- `pnpm test`: **75 files, 367 tests passed** (every Docker-backed suite
+  included).
+- `pnpm test:adversarial`: 4 files / 17 tests passed (new: INV6 resource
+  limits). `pnpm test:e2e`: 2 files / 3 tests passed.
+- Each branch passed the full gate when it was committed: T2.2 69/332,
+  T2.3 71/342, T2.4 73/359.
+
+### Choices to review
+
+- **Live-app cap scope (T2.3).** AGENTS §14 says "10 live apps per builder".
+  With one builder this is implemented as 10 for the whole instance, not 10
+  per owner. If you meant per owner, it is a one-line change in
+  `apps/control-plane/src/routes/publish.ts`.
+- **Orphan reaper only flags.** The local Docker daemon is shared with test
+  runs, so auto-removing would also delete test resources. It writes
+  `runtime.orphan` audit rows and a log line; removal stays manual
+  (`docs/lifecycle.md`).
+
 ## Resolved by human (Nov 8)
 
 1. **gh auth / PRs.** `gh` is authenticated; all branches are pushed and the
@@ -306,13 +386,36 @@ orphan reaper should also reap networks.
 ## Blocked: needs human
 
 1. Still open from T0.8: the GitHub second-account 403 browser check.
-2. **Merges.** PRs #19 → T2.1 are stacked; merge them in order.
+2. **Merges.** PRs #19 → #34 are stacked; merge them in order from #19
+   (GitHub retargets each child to `dev` when its parent branch is deleted on
+   merge).
 3. **Egress approvals.** `EGRESS_ALLOWED_DOMAINS` is empty by default, so no app
    can reach any domain until you list the ones you approve (or set `*` to
    approve whatever apps declare). Which default is right is your call
    (AGENTS §15: widening app access).
-4. **Smoke check off the app network (open since Day 2).** The builder's
-   smoke check still runs the new image on Docker's default bridge (with
-   internet and its env) for up to 30 s. Planned for T2.2 tomorrow.
-5. If you pause Docker Desktop on purpose, the scheduled run cannot run its
-   Docker tests (it restarts Docker when it finds it paused).
+4. **Dependency installs during builds (T2.4).** With `--network=none`,
+   templates cannot `npm install` or `pip install` from the registries. Today
+   Node apps with `dependencies` must be bundled (the CLI never uploads
+   `node_modules/`), and Python packages must be vendored as `wheels/`. Both are
+   refused with a clear hint. Options:
+   - (a) **Keep it offline (current).** Simplest and safest; bundling or
+     vendoring is the app author's job. The MCP tool description tells
+     agents this.
+   - (b) **Registry-only build network.** Give template builds (or all builds)
+     a network that can reach only `registry.npmjs.org` / `pypi.org` /
+     `files.pythonhosted.org` through the egress proxy. Normal installs then
+     work, but builds gain network access (install scripts run untrusted code
+     with that access). This widens what a published app's build may reach:
+     AGENTS §15.
+   - (c) **Two-stage build.** A separate, trusted "fetch" step downloads
+     declared dependencies (no install scripts: `npm ci --ignore-scripts`,
+     `pip download --only-binary`) into the context, then the normal
+     `--network=none` build runs. Safer than (b), more work, and packages
+     with native build steps still fail.
+   - (d) **Let the CLI upload `node_modules/`** (opt-in), so local installs
+     travel with the app. Easy, but uploads get big (100 MB cap) and native
+     modules built on macOS will not run on Linux.
+5. **gVisor on a real host.** The `runsc` path is unit-tested only (Docker
+   Desktop for Mac has no gVisor). Check it on the Linux host chosen in M3.
+6. If you pause or quit Docker Desktop, the scheduled run restarts it (it was
+   not running at the start of Day 4).
