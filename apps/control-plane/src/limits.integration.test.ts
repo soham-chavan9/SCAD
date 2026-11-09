@@ -127,6 +127,17 @@ describe.runIf(Boolean(databaseUrl))("limits and quotas on publish (T2.3)", () =
     expect(details.issues[0]?.path).toBe("resources.memory_mb");
   });
 
+  it("publishing starts (and a republish restarts) the 30-day expiry clock (T2.5)", async () => {
+    const before = Date.now();
+    const res = await publish({ name: "fresh" });
+    expect(res.status).toBe(202);
+    const [row] = await dbBundle.db.select().from(apps);
+    const days = ((row?.expiresAt?.getTime() ?? 0) - before) / 86_400_000;
+    expect(days).toBeGreaterThan(29.99);
+    expect(days).toBeLessThan(30.01);
+    expect(row?.expiryWarnedAt).toBeNull();
+  });
+
   it("an over-cap disk request is refused with LIMIT_EXCEEDED naming the cap", async () => {
     const res = await publish({ name: "hoarder", manifest: { resources: { disk_gb: 50 } } });
     expect(res.status).toBe(400);
