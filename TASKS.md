@@ -154,8 +154,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Depends: T0.4. Done when: runtime test inspects container config for non-root, read-only rootfs, caps dropped, limits set (INV6); `runsc` used automatically when installed and documented when not; fork bomb and memory hog sample apps are contained.
   - Tests: `packages/runtime-docker/src/hardening.test.ts`, the INV6 case in `invariants.test.ts`, `packages/runtime-docker/src/smoke.test.ts`, `tests/adversarial/src/inv6-resource-limits.test.ts` (`examples/adversarial/fork-bomb`, `memory-hog`). Docs: `docs/hardening.md`. The builder's smoke check now runs on the app's internal network with the deploy's profile (closes the Day 2 finding). gVisor is not available on Docker Desktop for Mac, so the `runsc` path is unit-tested only.
 
-- [ ] **T2.3 Limits and quotas**
+- [x] **T2.3 Limits and quotas**
   - Depends: T1.5. Done when: 11th live app, 101 MB upload, over-cap memory request, and build timeout each return the right code (`LIMIT_EXCEEDED`, `UPLOAD_TOO_LARGE`, `BUILD_FAILED`) with a useful `hint`.
+  - Tests: `apps/control-plane/src/limits.integration.test.ts`, `apps/builder/src/build-timeout.test.ts`. Docs: `docs/limits.md`. The live-app cap counts the whole instance (§14 "per builder"); over-cap `resources` are now `LIMIT_EXCEEDED` instead of `MANIFEST_INVALID`. Fixed: a 101 MB upload returned `500 INTERNAL`.
 
 - [ ] **T2.4 Auto-detect builds**
   - Depends: T0.5. Reserved decision: tool choice (AGENTS §15). **Ask the human before choosing.**
