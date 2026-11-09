@@ -1,8 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { appAccess, apps, auditEvents, envVars, runtimeLogs } from "../db/schema.js";
 import { ApiError } from "../errors.js";
+import { purgeAppData } from "../lifecycle/purge.js";
 import type { MachineController } from "../machines/controller.js";
 import { findOwnedApp } from "./share.js";
 
@@ -25,18 +24,7 @@ export const deleteAppRoutes: FastifyPluginAsync<DeleteAppRoutesOpts> = async (a
     }
     await opts.machines.removeApp(owned.id);
 
-    await opts.db.transaction(async (tx) => {
-      await tx.delete(appAccess).where(eq(appAccess.appId, owned.id));
-      await tx.delete(envVars).where(eq(envVars.appId, owned.id));
-      await tx.delete(runtimeLogs).where(eq(runtimeLogs.appId, owned.id));
-      await tx.update(apps).set({ status: "deleted", pinned: false }).where(eq(apps.id, owned.id));
-      await tx.insert(auditEvents).values({
-        actorId: request.user.id,
-        appId: owned.id,
-        action: "app.delete",
-        metadata: { slug: owned.slug },
-      });
-    });
+    await purgeAppData(opts.db, owned, { actorId: request.user.id, reason: "owner" });
     return { app_id: owned.id, slug: owned.slug, status: "deleted" as const };
   });
 };

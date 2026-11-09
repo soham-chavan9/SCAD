@@ -13,6 +13,7 @@ import {
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, releases, users } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
+import { renewedExpiry } from "../lifecycle/policy.js";
 import { readRootScadJson, ScadJsonTooLargeError } from "../manifest-from-tarball.js";
 import { saveTarball, type DataPaths } from "../storage.js";
 
@@ -180,15 +181,17 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
         const liveApps = row?.n ?? 0;
         if (liveApps >= maxLiveApps) throw liveAppLimitExceeded(liveApps, maxLiveApps);
       }
+      // Publishing counts as use: the 30-day expiry clock restarts (D8, T2.5).
+      const expiry = renewedExpiry(new Date());
       if (!existing) {
         const [created] = await tx
           .insert(apps)
-          .values({ slug: slugCandidate, ownerId, status: "building", visibility: "allowlist" })
+          .values({ slug: slugCandidate, ownerId, status: "building", visibility: "allowlist", ...expiry })
           .returning();
         return created;
       }
-      await tx.update(apps).set({ status: "building" }).where(eq(apps.id, existing.id));
-      return { ...existing, status: "building" as const };
+      await tx.update(apps).set({ status: "building", ...expiry }).where(eq(apps.id, existing.id));
+      return { ...existing, status: "building" as const, ...expiry };
     });
 
     if (!appRow) {
