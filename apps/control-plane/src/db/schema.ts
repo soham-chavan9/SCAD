@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -55,6 +57,8 @@ export const apps = pgTable(
     lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     pinned: boolean("pinned").notNull().default(false),
+    /** When the 7-day expiry warning went out for the current `expires_at` (T2.5). */
+    expiryWarnedAt: timestamp("expiry_warned_at", { withTimezone: true }),
   },
   (t) => [unique("apps_owner_slug").on(t.ownerId, t.slug)],
 );
@@ -220,4 +224,38 @@ export const runtimeLogs = pgTable(
     index("runtime_logs_app_provider_idx").on(t.appId, t.providerId),
     index("runtime_logs_at_idx").on(t.at),
   ],
+);
+
+/**
+ * Raw per-viewer counters (T2.5). Each gateway touch adds one request for
+ * that viewer and day (UTC); the hourly roll-up folds these into usage_daily.
+ */
+export const usageViewers = pgTable(
+  "usage_viewers",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requests: integer("requests").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.day, t.userId] })],
+);
+
+/** AGENTS §7 usage_daily: per app and UTC day. Written by the hourly roll-up (T2.5). */
+export const usageDaily = pgTable(
+  "usage_daily",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    requests: integer("requests").notNull().default(0),
+    uniqueViewers: integer("unique_viewers").notNull().default(0),
+    egressBytes: bigint("egress_bytes", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.day] })],
 );
