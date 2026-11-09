@@ -158,9 +158,10 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Depends: T1.5. Done when: 11th live app, 101 MB upload, over-cap memory request, and build timeout each return the right code (`LIMIT_EXCEEDED`, `UPLOAD_TOO_LARGE`, `BUILD_FAILED`) with a useful `hint`.
   - Tests: `apps/control-plane/src/limits.integration.test.ts`, `apps/builder/src/build-timeout.test.ts`. Docs: `docs/limits.md`. The live-app cap counts the whole instance (§14 "per builder"); over-cap `resources` are now `LIMIT_EXCEEDED` instead of `MANIFEST_INVALID`. Fixed: a 101 MB upload returned `500 INTERNAL`.
 
-- [ ] **T2.4 Auto-detect builds**
-  - Depends: T0.5. Reserved decision: tool choice (AGENTS §15). **Ask the human before choosing.**
+- [x] **T2.4 Auto-detect builds**
+  - Depends: T0.5. Reserved decision: tool choice (AGENTS §15). **Ask the human before choosing.** Human chose built-in templates (Nov 8).
   - Done when: a directory with only `package.json` and a Python app with `requirements.txt` and a static site folder each publish without a Dockerfile.
+  - Tests: `apps/builder/src/autodetect.test.ts`, `apps/builder/src/autodetect.docker.test.ts`, T2.4 cases in `apps/control-plane/src/publish.integration.test.ts`. Docs: `docs/autodetect.md`. Examples: `hello-python`, `hello-static`. Builds stay `--network=none`: npm dependencies must be bundled, Python packages vendored as `wheels/`; installing from registries needs a human decision (see build-schedule "Blocked").
 
 - [ ] **T2.5 Lifecycle jobs**
   - Depends: T1.4. Files: scheduler.
