@@ -367,6 +367,144 @@ Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
   `runtime.orphan` audit rows and a log line; removal stays manual
   (`docs/lifecycle.md`).
 
+## Day 5 — 2026-11-10
+
+Run early, at 06:30 instead of 09:00, at the human's request. The scheduled
+task was disabled on purpose, so this run was started by hand. Docker Desktop
+was running and `gh` was authenticated. `dev` already had all of T0.9–T2.5
+(PR #35 landed the stack).
+
+| Task | Status | Branch | PR | Not verified / notes |
+|---|---|---|---|---|
+| T2.1b Egress default | done, merged | `task/t2-1b-egress-default` | [#36](https://github.com/soham-chavan9/small-cloud/pull/36) → `dev` | — |
+| T2.6 Operator controls + invite allowlist | done, merged | `task/t2-6-operator-controls` | [#37](https://github.com/soham-chavan9/small-cloud/pull/37) → `dev` | "Not invited" page not clicked in a browser (covered by inject tests) |
+| T2.7 Usage and cost visibility | done | `task/t2-7-usage` | [#38](https://github.com/soham-chavan9/small-cloud/pull/38) merged into `task/t2-6-operator-controls`, **not `dev`**; [#39](https://github.com/soham-chavan9/small-cloud/pull/39) → `dev` lands it | Running hours before migration 0008 were never recorded |
+| T2.8 Adversarial suite | done | `task/t2-8-adversarial` | [#40](https://github.com/soham-chavan9/small-cloud/pull/40) → `dev` | — |
+| T2.9 Runbook and README | done | `task/t2-9-runbook` | T2.9 PR → `dev` | Fresh-clone timing used warm Docker/pnpm caches |
+
+**PR bases.** This repo doesn't delete branches on merge, so GitHub never
+retargets a stacked PR. #38 had base `task/t2-6-operator-controls` and merged
+into that branch 25 s after #37 merged, so T2.7 never reached `dev`. #39
+(`task/t2-7-usage` → `dev`) lands it. Every other Day 5 PR targets `dev`
+directly. **Merge in order: #39, #40, then T2.9.** Each later branch contains
+the earlier ones, so until its parent merges a PR also shows the parent's
+commits. No open PR has a base other than `dev`.
+
+### What changed
+
+- **T2.1b** (human decision, Nov 9): `EGRESS_ALLOWED_DOMAINS` unset, empty,
+  or `*` lets apps reach any public domain they declare. A comma list narrows
+  that; `none` refuses all egress. Undeclared domains and private or reserved
+  addresses stay refused (INV2). The proxy logs the active policy at startup.
+- **T2.6**:
+  - `/v1/admin` routes, for operators only (`OPERATOR_EMAILS`):
+    - users list;
+    - suspend and unsuspend users and apps;
+    - invite add, rm, ls;
+    - audit feed.
+  - Every change is audited.
+  - **INV9:** the gateway ACL used to read app and owner status from its 30 s
+    resolve cache. It now reads them fresh on every request, and open
+    WebSockets re-check access every 2 s.
+  - A dropped WebSocket used to leave the connection to the app open. That
+    is fixed.
+  - Suspended apps stay down. The owner can't republish one, an env change
+    doesn't restart it, and a build that finishes later doesn't start it.
+  - **Invite allowlist** (human decision, Nov 8):
+    - Only `OPERATOR_EMAILS`, shared-to emails, and invited emails can
+      create an account.
+    - Everyone else gets a "not invited" page and no account row.
+    - Existing accounts keep access.
+    - The magic-link request page stays the same for everyone.
+  - Migration 0007 (`invites`). CLI: `scad admin ...`.
+- **T2.7**:
+  - `GET /v1/admin/usage` and `scad admin usage` show per app:
+    - requests and unique viewers, from the raw counters, so they are
+      current;
+    - last viewed;
+    - all-time running hours;
+    - last measured `/data` size.
+  - Static operator page at the control plane's `/admin`. The operator pastes
+    a PAT, which stays in that tab only. Strict CSP. Checked in a browser.
+  - Migration 0008 (`machines.running_seconds`, `volume_bytes`,
+    `volume_measured_at`). New optional driver capability: `volumeUsage`.
+- **T2.8**:
+  - Hostile apps `snoop`, `escape`, `cpu-hog`, and `disk-filler`, plus
+    attacker tests for INV3/4/5/10 against the real gateway and control
+    plane.
+  - Every T2.8 scenario has a test named by its INV.
+  - Matrix: `tests/adversarial/README.md`.
+  - Found and fixed: a malformed session cookie made the gateway answer 500.
+- **T2.9**:
+  - `docs/runbook.md` covers:
+    - backup and restore, with the commands run against a scratch DB and
+      volume;
+    - key and secret rotation;
+    - suspending and deleting a user's data, via the new
+      `scad admin delete-app`;
+    - disaster reset;
+    - health checks.
+  - The README starts with one end-to-end path; new `scripts/setup-env.sh`
+    and `scripts/with-env.sh`.
+  - The fresh-clone run found and fixed three bugs:
+    - a relative `SCAD_DATA_DIR` split uploads between the control plane and
+      the builder, so the first publish failed;
+    - the gateway refused to start without a GitHub OAuth app (email sign-in
+      now works on its own);
+    - a recreated gateway or egress proxy dropped off every app network
+      until a redeploy (now re-attached on wake and by the 5-minute sweep).
+
+### Tests
+
+- Each task passed the full gate before its PR. Numbers:
+  - T2.1b: 77 files, 394 tests.
+  - T2.6: 80 files, 426 tests.
+  - T2.8: 83 files, 479 tests; adversarial 6 files, 63 tests.
+  - e2e: 3/3 every time.
+- T2.7's first local gate had one real failure that I misread as T2.8 noise:
+  `migrate.down.test.ts` required `DROP TABLE` in every down script, and 0008
+  only drops columns. CI on #39 caught it. The fix (accept column-only down
+  scripts) was pushed to #39 and cherry-picked onto T2.8. CI now passes on
+  #39 and #40, including the new Docker adversarial suite on Linux.
+- T2.9 full gate: see the T2.9 PR.
+- **Fresh clone, README only** (second run, final code): clone → install →
+  `setup-env` → `compose up` → migrate → start both services → login →
+  publish → sign in by emailed link in a browser → app loads: **89 s**. Docker
+  images and the pnpm store were cached; a first-ever install also downloads
+  those. To run it, the existing Compose stack was taken down (containers
+  only; its Postgres volume was kept) and brought back up afterwards.
+
+### Choices to review
+
+- **CPU is weighted, not capped.** `cpuShares` keeps a hog from starving a
+  neighbour (tested), but an app alone on an idle host can use every core. A
+  hard cap (`NanoCpus`) would change a default.
+- **Extra admin routes** beyond the §8 list: unsuspend, `GET /admin/users`,
+  invites, `GET /admin/audit`, and `DELETE /admin/apps/:id`. All are in AGENTS
+  §8.
+- **Unsuspending an app** sets it to `stopped`; the next view wakes it.
+- Still open from Day 4: the live-app cap counts the whole instance, not each
+  owner.
+
+## M2 exit status
+
+M2 exit: *a friend publishes an app on their own, shares it, and the
+adversarial suite is green.*
+
+- [x] All M2 tasks (T2.1–T2.9) are done with acceptance passing. T2.7–T2.9 are
+  in PRs #39, #40, and T2.9's, waiting to merge.
+- [x] Adversarial suite green: locally, and in CI on #40.
+- [x] The operator can suspend any app or user and see usage (v1 definition of
+  done).
+- [x] README runs end to end from a fresh clone (89 s with warm caches).
+- [ ] **A friend publishes and shares an app on their own.** Needs a second
+  person. It also needs public hosting (M3, human decision) unless they use
+  this machine.
+- [ ] The T0.8 GitHub second-account 403 check in a browser (human).
+
+M2 is code-complete; the exit needs the human checks above. M3 has not been
+started.
+
 ## Resolved by human (Nov 8)
 
 1. **gh auth / PRs.** `gh` is authenticated; all branches are pushed and the
@@ -394,8 +532,11 @@ Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
 
 ## Blocked: needs human
 
-1. Still open from T0.8: the GitHub second-account 403 browser check.
-2. **Dependency installs during builds (T2.4).** With `--network=none`,
+1. **Merges.** Merge #39 (T2.7), then #40 (T2.8), then the T2.9 PR. All
+   target `dev`.
+2. **M2 exit check.** A friend publishes and shares an app unaided (see M2
+   exit status), and the T0.8 GitHub second-account 403 browser check.
+3. **Dependency installs during builds (T2.4).** With `--network=none`,
    templates cannot `npm install` or `pip install` from the registries. Today
    Node apps with `dependencies` must be bundled (the CLI never uploads
    `node_modules/`), and Python packages must be vendored as `wheels/`. Both are
@@ -417,7 +558,15 @@ Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
    - (d) **Let the CLI upload `node_modules/`** (opt-in), so local installs
      travel with the app. Easy, but uploads get big (100 MB cap) and native
      modules built on macOS will not run on Linux.
-3. **gVisor on a real host.** The `runsc` path is unit-tested only (Docker
+4. **Data retention / account erasure** (AGENTS §15). `scad admin delete-app`
+   removes a user's apps and their data. The suspended `users` row, deleted
+   app rows, and audit events are kept. Whether, and when, to anonymise or
+   erase those is your call (`docs/runbook.md`).
+5. **CPU cap.** Keep CPU weighted (`cpuShares`, current), or add a hard
+   per-app cap? That would change an AGENTS §11 default (see T2.8 notes).
+6. **gVisor on a real host.** The `runsc` path is unit-tested only (Docker
    Desktop for Mac has no gVisor). Check it on the Linux host chosen in M3.
-4. If you pause or quit Docker Desktop, the scheduled run restarts it (it was
-   not running at the start of Day 4).
+7. **M3 (public hosting, domain, provider).** Not started, by rule. Needed
+   before a friend can use the instance from their own machine.
+8. The scheduled daily task is disabled. Its stored folder is the old path
+   (`Desktop/Small Cloud`). If you re-enable it, update its folder first.
