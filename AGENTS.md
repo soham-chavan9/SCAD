@@ -137,6 +137,7 @@ login_codes  code_hash pk, user_id fk, app_host text, expires_at, used_at null  
 magic_links  token_hash pk, email, expires_at, used_at null
 pats         id uuid pk, user_id fk, token_hash unique, name, created_at, last_used_at, revoked_at null
 audit_events id uuid pk, actor_id fk null, app_id fk null, action text, metadata jsonb, at
+invites      email text pk, invited_by fk null, created_at                         -- T2.6 sign-up allowlist
 usage_daily  app_id fk, day date, requests int, unique_viewers int, egress_bytes bigint, pk(app_id, day)
 ```
 
@@ -144,7 +145,7 @@ All secrets, tokens, and codes are stored **hashed or encrypted**, never plainte
 
 ## 8. API contract (control plane, JSON, base `/v1`)
 
-Auth: `Authorization: Bearer <PAT>`. Operator routes require `role=operator`.
+Auth: `Authorization: Bearer <PAT>`. Operator routes require `role=operator` or an email in `OPERATOR_EMAILS`.
 
 ```
 POST   /auth/device                 -> {device_code, user_code, verification_uri, interval}
@@ -164,8 +165,15 @@ GET    /apps/:id/logs               SSE runtime log
 POST   /apps/:id/rollback           (M3)
 POST   /apps/:id/transfer           {email} (M3)
 DELETE /apps/:id
-POST   /admin/users/:id/suspend
-POST   /admin/apps/:id/suspend
+GET    /admin/users                 (T2.6) every user with role + status
+POST   /admin/users/:id/suspend     :id = user id or email
+POST   /admin/users/:id/unsuspend   (T2.6)
+POST   /admin/apps/:id/suspend      :id = app id or <owner-handle>/<slug> (URL-encoded)
+POST   /admin/apps/:id/unsuspend    (T2.6)
+GET    /admin/invites               (T2.6) sign-up invite list
+POST   /admin/invites               (T2.6) {email}
+DELETE /admin/invites/:email        (T2.6)
+GET    /admin/audit                 (T2.6) ?limit=&app= recent audit_events
 GET    /admin/usage
 ```
 
@@ -249,7 +257,7 @@ Defaults and caps: port 8080; memory 512 MB (cap 1024); disk 1 GB (cap 5); `cpuS
 
 ## 14. Defaults you may change only with human approval
 
-App limits: 10 live apps per builder, 100 MB upload, 10-minute build timeout, 10-minute idle stop, 15-second wake budget, 7-day log retention, 1 GB volume. `OPERATOR_EMAILS` gates device-code approval (`scad login`) only. GitHub sign-in creates an account for any GitHub user with a verified email. That must be fixed (invite allowlist) before the gateway is reachable outside localhost. No friend should publish until T0.9 (build isolation) is closed.
+App limits: 10 live apps per builder, 100 MB upload, 10-minute build timeout, 10-minute idle stop, 15-second wake budget, 7-day log retention, 1 GB volume. `OPERATOR_EMAILS` are the operators: they approve device-code login (`scad login`) and use `/admin` routes. Sign-up is invite-only (T2.6): only `OPERATOR_EMAILS`, emails an app was shared to, and the operator's invite list may create an account (GitHub or magic link); existing accounts keep access. No friend should publish until T0.9 (build isolation) is closed.
 
 ## 15. Decisions reserved for the human (ask, do not guess)
 

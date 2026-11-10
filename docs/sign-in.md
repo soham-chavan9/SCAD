@@ -4,6 +4,21 @@ The auth host is `auth.{BASE_DOMAIN}` (locally `http://auth.localhost:8080`).
 An app host with no session redirects to `/login?return_to=<app URL>`, which
 shows two options.
 
+## Who may create an account (invite allowlist, T2.6)
+
+Signing in with GitHub or a magic link creates an account only for:
+
+1. emails in `OPERATOR_EMAILS`,
+2. emails some app was shared to (`app_access`), and
+3. emails on the operator's invite list (`scad admin invite add|rm|ls`, audited).
+
+Anyone else gets a **"You're not invited yet"** page (403) and no account row.
+For magic links the request page stays the same for everyone (no
+enumeration): an uninvited email just gets no mail. If a link is used after
+its invite was removed, the verify step shows the not-invited page.
+**Existing accounts keep access** without an invite; to cut someone off,
+suspend them (`scad admin suspend-user`). See [`operator.md`](operator.md).
+
 ## GitHub (T0.6)
 
 `/login/github?return_to=...` starts OAuth with `state` + PKCE.
@@ -17,7 +32,7 @@ shows two options.
    can sign in, and the email is sent without awaiting it, so timing matches too
    (no account enumeration).
 3. A link is only created and sent for an **existing, active user** with that
-   email, or for an email some app has been shared with (T1.2). In the second
+   email, or for an invited email (see above). In the second
    case the account is created when the link is used (handle from the email's
    local part, e.g. `friend`, `friend-2`).
 4. The link is `auth.{BASE_DOMAIN}/login/email/verify?token=...`. Opening it
