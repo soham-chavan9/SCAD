@@ -285,6 +285,12 @@ importers:
       '@scad/builder':
         specifier: workspace:*
         version: link:../../apps/builder
+      '@scad/control-plane':
+        specifier: workspace:*
+        version: link:../../apps/control-plane
+      '@scad/gateway':
+        specifier: workspace:*
+        version: link:../../apps/gateway
       '@scad/runtime-docker':
         specifier: workspace:*
         version: link:../../packages/runtime-docker
