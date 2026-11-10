@@ -4,6 +4,7 @@ import { FakeIdentityProvider } from "./auth/identity.js";
 import { buildGateway } from "./app.js";
 import { assertFakeAuthAllowed } from "./fake-auth-guard.js";
 import { resolveIdentityKeys } from "./identity/keys.js";
+import { SmtpMailer, defaultFromAddress } from "./mail/mailer.js";
 import { createHttpAppResolver } from "./resolve.js";
 
 async function main(): Promise<void> {
@@ -32,8 +33,14 @@ async function main(): Promise<void> {
         clientSecret: required("GITHUB_CLIENT_SECRET"),
       });
 
+  const mailer = new SmtpMailer({
+    smtpUrl: required("SMTP_URL"),
+    from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain),
+  });
+
   const gateway = await buildGateway({
     db,
+    mailer,
     baseDomain,
     identity,
     keys,

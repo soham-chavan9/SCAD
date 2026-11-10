@@ -15,6 +15,13 @@
       "when": 1792743044187,
       "tag": "0001_sessions_login_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794000533161,
+      "tag": "0002_magic_links",
+      "breakpoints": true
     }
   ]
 }

@@ -93,9 +93,10 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 ## M1: Alpha. Friends can use an app you published (weeks 3 to 4)
 
-- [ ] **T1.1 Magic-link sign-in**
+- [x] **T1.1 Magic-link sign-in**
   - Depends: T0.6. Files: gateway/auth host, `magic_links` migration, SMTP mailer (Mailpit locally).
   - Done when: link arrives in Mailpit, works once, expires after 10 minutes, rate limits per email and IP; an unknown email still gets the same response (no account enumeration).
+  - Tests: `apps/gateway/src/magic-link.integration.test.ts`. Docs: `docs/sign-in.md`. `/login` is now a chooser page; GitHub starts at `/login/github`.
 
 - [ ] **T1.2 Allowlists and sharing**
   - Depends: T0.7. Files: control plane share routes, CLI `share`/`unshare`/`ls`, gateway ACL, `app_access` migration.

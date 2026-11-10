@@ -32,3 +32,46 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+export function loginPage(opts: { returnTo: string; csrf: string }): string {
+  const rt = escapeHtml(opts.returnTo);
+  return htmlPage(
+    "Sign in",
+    `<h1>Sign in</h1>
+<p><a href="/login/github?return_to=${escapeHtml(encodeURIComponent(opts.returnTo))}">Sign in with GitHub</a></p>
+<form method="post" action="/login/email">
+<input type="hidden" name="csrf" value="${escapeHtml(opts.csrf)}"/>
+<input type="hidden" name="return_to" value="${rt}"/>
+<label>Email <input type="email" name="email" required autocomplete="email"/></label>
+<button type="submit">Email me a sign-in link</button>
+</form>`,
+  );
+}
+
+/** Identical for known and unknown emails (no account enumeration). */
+export function checkEmailPage(): string {
+  return htmlPage(
+    "Check your email",
+    "<h1>Check your email</h1><p>If that address can sign in, a link is on its way. It works once and expires in 10 minutes.</p>",
+  );
+}
+
+export function rateLimitedPage(): string {
+  return htmlPage(
+    "Too many requests",
+    "<h1>Too many requests</h1><p>Wait a few minutes, then ask for a new link.</p>",
+  );
+}
+
+/** Opening the link only shows this page; the POST consumes the token (mail scanners can't burn it). */
+export function confirmMagicLinkPage(opts: { token: string; csrf: string }): string {
+  return htmlPage(
+    "Continue signing in",
+    `<h1>Continue signing in</h1>
+<form method="post" action="/login/email/verify">
+<input type="hidden" name="token" value="${escapeHtml(opts.token)}"/>
+<input type="hidden" name="csrf" value="${escapeHtml(opts.csrf)}"/>
+<button type="submit">Continue</button>
+</form>`,
+  );
+}
