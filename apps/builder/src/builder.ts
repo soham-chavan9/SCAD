@@ -138,7 +138,13 @@ export class Builder {
 
       try {
         await this.#log(job.releaseId, `smoke-checking port ${port}`);
-        await smokeCheckHttp({ imageRef, port, timeoutMs: 30_000 });
+        await smokeCheckHttp({
+          imageRef,
+          port,
+          ...(startArgv !== undefined && startArgv.length > 0 ? { start: startArgv } : {}),
+          env: manifest.env,
+          timeoutMs: 30_000,
+        });
       } catch (err) {
         await this.#log(job.releaseId, `smoke failed: ${String(err)}`);
         await this.#fail(

@@ -20,11 +20,13 @@ export {
 
 export {
   applyManifestDefaults,
+  describeManifestIssues,
   MANIFEST_CAPS,
   MANIFEST_DEFAULTS,
   manifestSchema,
   parseManifest,
   type ManifestInput,
+  type ManifestIssue,
   type ResolvedManifest,
 } from "./manifest.js";
 

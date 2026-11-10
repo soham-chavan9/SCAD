@@ -9,6 +9,7 @@ Canonical agent brief and build plan live at the repo root:
 - [`sign-in.md`](sign-in.md) — GitHub and email magic-link sign-in on the auth host
 - [`sharing.md`](sharing.md) — allowlists, `scad share`/`unshare`/`ls`, `visibility=instance`
 - [`data-volume.md`](data-volume.md) — per-app `/data` volume lifecycle, permissions, and size limit
+- [`manifest.md`](manifest.md) — `scad.json` fields, defaults, caps, and `MANIFEST_INVALID` errors
 - [`idle-wake.md`](idle-wake.md) — idle stop after 10 minutes, wake on request, the "Starting…" page
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
