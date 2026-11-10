@@ -60,7 +60,7 @@ describe("live runtime logs (T1.7, real Docker)", () => {
     const info = await docker.getContainer(machine.providerId).inspect();
     expect(info.HostConfig.LogConfig).toEqual({
       Type: "json-file",
-      Config: { "max-size": "10m", "max-file": "3" },
+      Config: { "max-size": "1m", "max-file": "2" },
     });
 
     const seen: string[] = [];

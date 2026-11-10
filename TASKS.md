@@ -126,7 +126,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 - [x] **T1.7 Runtime logs**
   - Depends: T0.4. Done when: `scad logs <app> -f` streams live stdout/stderr; non-owners cannot read logs; 7-day retention job.
-  - Tests: `packages/runtime-docker/src/logs-stream.test.ts` (real Docker follow), `apps/control-plane/src/logs.integration.test.ts` (SSE, INV10, disconnect, retention job), `packages/cli/src/logs.test.ts`. Docs: `docs/logs.md`. Runtime logs: Docker json-file 3x10 MB plus a 7-day read window (no hard time-based delete with json-file); build logs: daily 7-day prune.
+  - Tests: `packages/runtime-docker/src/logs-stream.test.ts` (real Docker follow), `apps/control-plane/src/logs.integration.test.ts` (SSE, INV10, disconnect, retention job), `packages/cli/src/logs.test.ts`. Docs: `docs/logs.md`. Runtime logs (T1.7b): collected into the control plane's `runtime_logs` table, which `scad logs` reads; a daily job deletes rows older than 7 days (`apps/control-plane/src/runtime-log-store.integration.test.ts`). Docker json-file is a 2x1 MB rotating buffer only. Build logs: daily 7-day prune.
 
 - [ ] **T1.8 MCP server**
   - Depends: T0.5, T1.2, T1.6, T1.7. Files: `packages/mcp-server`.

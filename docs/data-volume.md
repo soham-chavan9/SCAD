@@ -36,9 +36,12 @@ sized image (`loop: invalid argument`, checked on Docker Desktop 29.9) and
 - `enforceVolumeQuota(machine)` stops a running app that has grown past its
   limit (to be called by the lifecycle scheduler, T1.4/T2.5).
 
-Between checks a running app can write past the limit. A hard limit needs a
+Between checks a running app can write past the limit.
+
+**Decision (human, Nov 8): measured, not hard; revisit with the M3 provider.**
+The measured limit is accepted for local use and M2. A hard limit needs a
 different volume backend (Fly volumes in M3, or XFS project quotas / LVM on a
-Linux host). That choice is open for the human.
+Linux host).
 
 Tests: `packages/runtime-docker/src/volume.test.ts` (real Docker),
 `apps/builder/src/deploy-error.test.ts`.

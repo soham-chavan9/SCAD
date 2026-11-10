@@ -154,9 +154,12 @@ GET    /releases/:id                -> {status, error?, log_tail}
 GET    /releases/:id/logs           SSE build log
 GET    /apps                        list mine
 GET    /apps/:id                    detail (url, status, expires_at, viewers_30d)
+PATCH  /apps/:id                    {visibility}
 POST   /apps/:id/share              {email}
+GET    /apps/:id/share              -> allowlist (emails) + visibility
 DELETE /apps/:id/share/:email
 PUT    /apps/:id/env                {KEY: value} + {secret?: string[]}
+GET    /apps/:id/env                -> key names (+ values of non-secret vars only; secret values are never returned)
 GET    /apps/:id/logs               SSE runtime log
 POST   /apps/:id/rollback           (M3)
 POST   /apps/:id/transfer           {email} (M3)
@@ -167,6 +170,8 @@ GET    /admin/usage
 ```
 
 Internal (gateway to control plane, shared secret + network-restricted): `POST /internal/resolve {host}`, `POST /internal/wake {appId}`, `POST /internal/touch {appId, userId}`.
+
+Internal (builder to control plane, `INTERNAL_TOKEN`): `POST /internal/builds/:id/runtime-env` returns the app's decrypted env just in time for deploy, only while that release is building; it is never passed into `docker build`.
 
 ### Errors (all non-2xx)
 

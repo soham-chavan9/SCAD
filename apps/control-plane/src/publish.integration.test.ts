@@ -14,6 +14,8 @@ import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
 import { machines, releases } from "./db/schema.js";
+import { RuntimeLogCollector } from "./logs/collector.js";
+import { recentRuntimeLogs } from "./logs/runtime-log-store.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
 
@@ -143,6 +145,23 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
         .where(eq(releases.id, result.releaseId))
         .limit(1);
       expect(release?.status).toBe("ready");
+
+      // T1.7b: the container's own output lands in SCAD's runtime log store.
+      const collector = new RuntimeLogCollector({ db: dbBundle.db, runtime, flushMs: 50 });
+      try {
+        await collector.sweep();
+        const deadline = Date.now() + 10_000;
+        let lines: string[] = [];
+        while (Date.now() < deadline) {
+          await collector.flush();
+          lines = (await recentRuntimeLogs(dbBundle.db, result.appId, 50)).map((r) => r.line);
+          if (lines.some((l) => l.includes("hello-node listening"))) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(lines.some((l) => l.includes("hello-node listening"))).toBe(true);
+      } finally {
+        await collector.close();
+      }
     },
     300_000,
   );
