@@ -153,7 +153,7 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
     if (!opts.machines) {
       throw new ApiError(503, "INTERNAL", "No runtime configured", "Start the control plane with a runtime.");
     }
-    await opts.machines.touch(parsed.data.appId);
+    await opts.machines.touch(parsed.data.appId, parsed.data.userId);
     return { ok: true };
   });
 };

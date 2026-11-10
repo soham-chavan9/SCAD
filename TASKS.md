@@ -163,10 +163,11 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: a directory with only `package.json` and a Python app with `requirements.txt` and a static site folder each publish without a Dockerfile.
   - Tests: `apps/builder/src/autodetect.test.ts`, `apps/builder/src/autodetect.docker.test.ts`, T2.4 cases in `apps/control-plane/src/publish.integration.test.ts`. Docs: `docs/autodetect.md`. Examples: `hello-python`, `hello-static`. Builds stay `--network=none`: npm dependencies must be bundled, Python packages vendored as `wheels/`; installing from registries needs a human decision (see build-schedule "Blocked").
 
-- [ ] **T2.5 Lifecycle jobs**
+- [x] **T2.5 Lifecycle jobs**
   - Depends: T1.4. Files: scheduler.
   - Steps: idle stopper (1 min), expiry notifier (daily, email 7 days before), expirer (stop at `expires_at`, delete 14 days later), orphan reaper (reconcile driver state vs DB), usage roll-up (hourly). Viewing renews expiry; `pinned` apps exempt.
   - Done when: fake-clock tests walk an app through warn, stop, grace, delete; viewing resets expiry; reaper flags a container with no DB row.
+  - Tests: `apps/control-plane/src/lifecycle.integration.test.ts`, `packages/runtime-docker/src/inventory.test.ts`. Docs: `docs/lifecycle.md`. Publishing now sets `expires_at` (it was never set before). The reaper flags orphans and marks missing machines; it does not delete Docker resources on its own. Requests are counted per debounced gateway touch.
 
 - [ ] **T2.6 Operator controls and audit**
   - Depends: T1.2. Files: admin routes, CLI `scad admin ...`, audit writer.

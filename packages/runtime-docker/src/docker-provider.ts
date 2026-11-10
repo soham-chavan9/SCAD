@@ -15,6 +15,7 @@ import { linesFromDockerLogs } from "./logs.js";
 import {
   appLabels,
   assertAppId,
+  LABEL_APP,
   containerName,
   LABEL_PORT,
   LABEL_ROLE,
@@ -402,6 +403,29 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         }
       }
     }
+  }
+
+  /**
+   * Every app this daemon has resources for (T2.5 orphan reaper): app
+   * containers, networks, and volumes, found by the `scad.app_id` label.
+   * Transient helper and smoke containers are not listed.
+   */
+  async listApps(): Promise<{ appId: string; resources: string[] }[]> {
+    const found = new Map<string, Set<string>>();
+    const add = (labels: Record<string, string> | null | undefined, kind: string) => {
+      const appId = labels?.[LABEL_APP];
+      if (!appId) return;
+      if (!found.has(appId)) found.set(appId, new Set());
+      found.get(appId)!.add(kind);
+    };
+    const filters = { label: [LABEL_APP] };
+    for (const c of await this.#docker.listContainers({ all: true, filters })) {
+      if (c.Labels?.[LABEL_ROLE] === "app") add(c.Labels, "container");
+    }
+    for (const n of await this.#docker.listNetworks({ filters })) add(n.Labels, "network");
+    const volumes = await this.#docker.listVolumes({ filters });
+    for (const v of volumes.Volumes ?? []) add(v.Labels, "volume");
+    return [...found].map(([appId, kinds]) => ({ appId, resources: [...kinds].sort() }));
   }
 
   /** Bytes used by the app's `/data` volume and its limit (Docker-specific). */

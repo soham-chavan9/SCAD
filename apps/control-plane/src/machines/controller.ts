@@ -1,8 +1,9 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { deploySpecFromManifest } from "@scad/shared";
 import type { RuntimeProvider } from "@scad/runtime-conformance";
 import type { Db } from "../db/client.js";
-import { apps, machines, releases } from "../db/schema.js";
+import { apps, machines, releases, usageViewers } from "../db/schema.js";
+import { renewedExpiry, utcDay } from "../lifecycle/policy.js";
 import { ApiError } from "../errors.js";
 
 /** AGENTS §14 default: stop an app after 10 minutes without traffic. */
@@ -119,11 +120,42 @@ export class MachineController {
     await done;
   }
 
-  /** Record traffic: keeps the app awake and marks it viewed. */
-  async touch(appId: string): Promise<void> {
+  /**
+   * Record traffic (gateway touch, debounced): keeps the app awake, marks it
+   * viewed, renews its 30-day expiry (D8), and counts the viewer for usage.
+   * Apps that already expired, were suspended, or deleted are not renewed.
+   */
+  async touch(appId: string, userId?: string): Promise<void> {
     const now = this.#now();
     await this.#db.update(machines).set({ lastRequestAt: now }).where(eq(machines.appId, appId));
-    await this.#db.update(apps).set({ lastViewedAt: now }).where(eq(apps.id, appId));
+    await this.#db
+      .update(apps)
+      .set({ lastViewedAt: now, ...renewedExpiry(now) })
+      .where(and(eq(apps.id, appId), inArray(apps.status, ["building", "running", "stopped"])));
+    if (userId) {
+      await this.#db
+        .insert(usageViewers)
+        .values({ appId, day: utcDay(now), userId, requests: 1 })
+        .onConflictDoUpdate({
+          target: [usageViewers.appId, usageViewers.day, usageViewers.userId],
+          set: { requests: sql`${usageViewers.requests} + 1` },
+        });
+    }
+  }
+
+  /** Stop the app's machine if it has one (expiry, T2.5). No-op when there is none. */
+  async stop(appId: string): Promise<void> {
+    const current = this.#ops.get(appId);
+    if (current) await current.done.catch(() => undefined);
+    const [row] = await this.#db
+      .select({ providerId: machines.providerId })
+      .from(machines)
+      .where(eq(machines.appId, appId))
+      .limit(1);
+    if (!row?.providerId) return;
+    const done = this.#doStop(appId, row.providerId);
+    this.#track(appId, { kind: "stop", done });
+    await done;
   }
 
   /** Stop every running, unpinned app idle longer than the threshold. Returns stopped app ids. */

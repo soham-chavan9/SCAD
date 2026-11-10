@@ -9,6 +9,8 @@ import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { MachineController, startIdleStopper } from "./machines/controller.js";
 import { masterKeyRingFromEnv } from "./secrets/rotate.js";
+import { LifecycleJobs, startLifecycleJobs } from "./lifecycle/jobs.js";
+import { defaultFromAddress, LogMailer, SmtpMailer } from "./lifecycle/mailer.js";
 import { RuntimeLogCollector, startRuntimeLogCollection } from "./logs/collector.js";
 import { loadSecretValues } from "./secrets/env-store.js";
 
@@ -47,6 +49,26 @@ async function main(): Promise<void> {
     },
   });
   startIdleStopper(machines, { onError: logError("idle stopper") });
+
+  // T2.5: expiry warnings, expiry, grace-period deletion, orphan reaper, usage roll-up.
+  const baseDomain = process.env["BASE_DOMAIN"] ?? "localhost:8080";
+  const smtpUrl = process.env["SMTP_URL"];
+  const lifecycle = new LifecycleJobs({
+    db,
+    machines,
+    inventory: runtime,
+    baseDomain,
+    mailer: smtpUrl
+      ? new SmtpMailer({ smtpUrl, from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain) })
+      : new LogMailer(),
+  });
+  startLifecycleJobs(lifecycle, {
+    onError: (job, err) => logError(job)(err),
+    onReap: (report) =>
+      console.warn(
+        `orphan reaper: ${report.orphans.length} runtime app(s) with no DB row, ${report.missing.length} machine(s) missing in the runtime`,
+      ),
+  });
 
   const dataDir = process.env["SCAD_DATA_DIR"] ?? mkdtempSync(join(tmpdir(), "scad-data-"));
   const paths = createDataPaths(dataDir);
