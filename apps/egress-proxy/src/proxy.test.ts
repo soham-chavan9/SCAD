@@ -4,7 +4,14 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createEgressProxy, hostAllowed, isBlockedAddress, PolicyIndex } from "./proxy.js";
+import {
+  createEgressProxy,
+  describeOperatorPolicy,
+  hostAllowed,
+  isBlockedAddress,
+  parseOperatorAllow,
+  PolicyIndex,
+} from "./proxy.js";
 
 describe("blocked address ranges (INV2, after DNS resolution)", () => {
   it.each([
@@ -201,5 +208,101 @@ describe("egress proxy (T2.1)", () => {
     });
     strict.close();
     expect(status).toMatch(/^HTTP\/1\.1 403/);
+  });
+});
+
+describe("operator policy default (T2.1b: allow declared domains)", () => {
+  it.each([
+    [undefined, ["*"]],
+    ["", ["*"]],
+    ["  ", ["*"]],
+    ["*", ["*"]],
+    ["none", []],
+    [" NONE ", []],
+    ["api.github.com, *.googleapis.com", ["api.github.com", "*.googleapis.com"]],
+  ])("EGRESS_ALLOWED_DOMAINS=%j means %j", (raw, expected) => {
+    expect(parseOperatorAllow(raw)).toEqual(expected);
+  });
+
+  it("refuses a list that mixes none with domains instead of guessing", () => {
+    expect(() => parseOperatorAllow("none,api.github.com")).toThrow(/none/);
+  });
+
+  it("describes the policy for the startup log", () => {
+    expect(describeOperatorPolicy(["*"])).toMatch(/any domain an app declares/);
+    expect(describeOperatorPolicy([])).toMatch(/refused/);
+    expect(describeOperatorPolicy(["a.com", "b.com"])).toMatch(/a\.com, b\.com/);
+  });
+
+  describe("through a real proxy server", () => {
+    let policyDir: string;
+    const servers: http.Server[] = [];
+    let upstream: net.Server;
+    const dns: Record<string, string[]> = {
+      "declared.example": ["93.184.216.34"],
+      "undeclared.example": ["93.184.216.35"],
+      "private.example": ["10.0.0.7"],
+    };
+
+    beforeAll(async () => {
+      policyDir = await mkdtemp(join(tmpdir(), "scad-egress-default-"));
+      await writeFile(
+        join(policyDir, "app-1.json"),
+        JSON.stringify({ appId: "app-1", subnet: "127.0.0.1/32", allow: ["declared.example", "private.example"] }),
+      );
+      upstream = net.createServer((s) => s.pipe(s));
+      await new Promise<void>((r) => upstream.listen(0, "127.0.0.1", r));
+    });
+
+    afterAll(async () => {
+      for (const s of servers) s.close();
+      upstream?.close();
+      await rm(policyDir, { recursive: true, force: true });
+    });
+
+    async function proxyFor(raw: string | undefined): Promise<number> {
+      const tcpPort = (upstream.address() as net.AddressInfo).port;
+      const server = createEgressProxy({
+        policyDir,
+        operatorAllow: parseOperatorAllow(raw),
+        lookup: async (host) => (dns[host] ?? []).map((address) => ({ address, family: 4 })),
+        dial: () => net.connect(tcpPort, "127.0.0.1"),
+        log: () => undefined,
+      });
+      servers.push(server);
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      return (server.address() as net.AddressInfo).port;
+    }
+
+    function connectStatus(port: number, target: string): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const s = net.connect(port, "127.0.0.1", () => s.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`));
+        s.once("data", (d) => {
+          resolve(d.toString().split("\r\n")[0] ?? "");
+          s.destroy();
+        });
+        s.on("error", reject);
+      });
+    }
+
+    it("with the default (unset), a declared public domain works", async () => {
+      expect(await connectStatus(await proxyFor(undefined), "declared.example:443")).toMatch(/^HTTP\/1\.1 200/);
+    });
+
+    it("with the default, an undeclared domain is refused", async () => {
+      expect(await connectStatus(await proxyFor(undefined), "undeclared.example:443")).toMatch(/^HTTP\/1\.1 403/);
+    });
+
+    it("with the default, a declared domain that resolves to a private IP is refused", async () => {
+      expect(await connectStatus(await proxyFor(""), "private.example:443")).toMatch(/^HTTP\/1\.1 403/);
+    });
+
+    it("none refuses everything, even declared public domains", async () => {
+      expect(await connectStatus(await proxyFor("none"), "declared.example:443")).toMatch(/^HTTP\/1\.1 403/);
+    });
+
+    it("an explicit list still narrows what apps may declare", async () => {
+      expect(await connectStatus(await proxyFor("other.example"), "declared.example:443")).toMatch(/^HTTP\/1\.1 403/);
+    });
   });
 });

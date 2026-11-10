@@ -8,7 +8,8 @@
  *   written by the runtime driver into a directory mounted read-only here, so
  *   apps have no control channel to reach.
  * - A host is allowed only if the app's manifest `egress` AND the operator's
- *   EGRESS_ALLOWED_DOMAINS both allow it.
+ *   EGRESS_ALLOWED_DOMAINS both allow it. Unset or empty means `*` (any
+ *   domain an app declares, T2.1b); `none` refuses everything.
  * - The proxy resolves DNS itself and refuses if ANY resolved address is
  *   private, loopback, link-local, metadata, or otherwise non-public, then
  *   connects to the vetted address (defeats DNS rebinding).
@@ -28,7 +29,7 @@ export type Resolved = { address: string; family: number };
 
 export type EgressProxyOptions = {
   policyDir: string;
-  /** Operator-approved patterns (`*` approves any manifest-declared domain). Empty = deny all. */
+  /** Operator-approved patterns (`*` approves any manifest-declared domain). Empty = deny all; see parseOperatorAllow. */
   operatorAllow: string[];
   lookup?: (host: string) => Promise<Resolved[]>;
   dial?: (ip: string, port: number) => net.Socket;
@@ -109,6 +110,38 @@ export function hostAllowed(host: string, appAllow: string[], operatorAllow: str
   if (net.isIP(h) !== 0) return false;
   const byApp = appAllow.some((p) => p !== "*" && matches(h, p));
   return byApp && operatorAllow.some((p) => matches(h, p));
+}
+
+/**
+ * Reads EGRESS_ALLOWED_DOMAINS. Unset or empty means `*`: apps may reach any
+ * public domain they declare in scad.json (human decision, Nov 9). `none`
+ * refuses everything. Anything else is a comma list that narrows what apps
+ * may declare.
+ */
+export function parseOperatorAllow(raw: string | undefined): string[] {
+  const entries = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (entries.length === 0) return ["*"];
+  if (entries.includes("none")) {
+    if (entries.length > 1) {
+      throw new Error('EGRESS_ALLOWED_DOMAINS: "none" must be used alone (it refuses all egress)');
+    }
+    return [];
+  }
+  return entries;
+}
+
+/** One line for the startup log. */
+export function describeOperatorPolicy(operatorAllow: string[]): string {
+  if (operatorAllow.length === 0) {
+    return "EGRESS_ALLOWED_DOMAINS=none: every egress request is refused.";
+  }
+  if (operatorAllow.includes("*")) {
+    return "egress policy: apps may reach any domain an app declares in scad.json (private and reserved addresses stay blocked).";
+  }
+  return `egress policy: apps may reach declared domains matching ${operatorAllow.join(", ")}.`;
 }
 
 function plainAddress(ip: string): string {
@@ -250,7 +283,7 @@ export function createEgressProxy(opts: EgressProxyOptions): http.Server {
 
   function deny(appId: string | undefined, host: string, reason: string): string {
     log(`egress deny app=${appId ?? "-"} host=${host} reason="${reason}"`);
-    return `SCAD egress refused ${host}: ${reason}. Declare the domain in scad.json "egress" and ask the operator to approve it.\n`;
+    return `SCAD egress refused ${host}: ${reason}. Declare the domain in scad.json "egress" (the operator may also restrict domains).\n`;
   }
 
   const server = http.createServer(async (req, res) => {
@@ -360,14 +393,9 @@ export function createEgressProxy(opts: EgressProxyOptions): http.Server {
 
 function main(): void {
   const policyDir = process.env["EGRESS_POLICY_DIR"] ?? "/policy";
-  const operatorAllow = (process.env["EGRESS_ALLOWED_DOMAINS"] ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const operatorAllow = parseOperatorAllow(process.env["EGRESS_ALLOWED_DOMAINS"]);
   const port = Number(process.env["PORT"] ?? 3128);
-  if (operatorAllow.length === 0) {
-    console.log("EGRESS_ALLOWED_DOMAINS is empty: every egress request is refused until the operator approves domains.");
-  }
+  console.log(describeOperatorPolicy(operatorAllow));
   createEgressProxy({ policyDir, operatorAllow }).listen(port, "0.0.0.0", () => {
     console.log(`egress proxy listening on :${port}`);
   });

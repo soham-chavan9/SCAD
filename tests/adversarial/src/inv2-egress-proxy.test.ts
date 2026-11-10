@@ -100,7 +100,7 @@ describe("egress proxy and network policy (INV1, INV2, real Docker)", () => {
       "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
       "-v", `${policyDir}:/policy:ro`,
       "-e", "EGRESS_POLICY_DIR=/policy",
-      "-e", "EGRESS_ALLOWED_DOMAINS=example.com,localtest.me",
+      // No EGRESS_ALLOWED_DOMAINS: the default (T2.1b) allows any domain an app declares.
       `scad-test/egress-proxy:${suffix}`,
     );
 
@@ -168,12 +168,12 @@ describe("egress proxy and network policy (INV1, INV2, real Docker)", () => {
     }
   });
 
-  it("an allowed domain works (needs internet on this machine)", async (ctx) => {
+  it("with the default policy, a declared public domain works (needs internet on this machine)", async (ctx) => {
     if (!online) ctx.skip();
     expect(await connectFrom(containerA, "example.com:443")).toBe("200");
   });
 
-  it("DNS rebinding: an allowed name that resolves to loopback is refused (needs public DNS)", async (ctx) => {
+  it("DNS rebinding: a declared name that resolves to loopback is refused (needs public DNS)", async (ctx) => {
     if (!online) ctx.skip();
     // localtest.me is public DNS that answers 127.0.0.1.
     expect(await connectFrom(containerA, "localtest.me:443")).toBe("403");
