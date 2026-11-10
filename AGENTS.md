@@ -131,7 +131,8 @@ releases     id uuid pk, app_id fk, version int, image_ref, manifest jsonb, stat
              build_log_ref, error jsonb null, created_at, unique(app_id, version)
 app_access   app_id fk, email text, granted_by fk, created_at, pk(app_id, email)
 env_vars     app_id fk, key, value_ciphertext bytea, is_secret bool, pk(app_id, key)
-machines     app_id pk fk, provider_id, volume_ref, state, last_started_at, last_request_at
+machines     app_id pk fk, provider_id, volume_ref, state, last_started_at, last_request_at,
+             running_seconds bigint, volume_bytes bigint null, volume_measured_at null   -- T2.7
 sessions     id uuid pk, user_id fk, created_at, expires_at, revoked_at null
 login_codes  code_hash pk, user_id fk, app_host text, expires_at, used_at null        -- one-time gateway codes
 magic_links  token_hash pk, email, expires_at, used_at null
@@ -174,7 +175,7 @@ GET    /admin/invites               (T2.6) sign-up invite list
 POST   /admin/invites               (T2.6) {email}
 DELETE /admin/invites/:email        (T2.6)
 GET    /admin/audit                 (T2.6) ?limit=&app= recent audit_events
-GET    /admin/usage
+GET    /admin/usage                 (T2.7) ?days= per-app requests, viewers, last viewed, running hours, volume
 ```
 
 Internal (gateway to control plane, shared secret + network-restricted): `POST /internal/resolve {host}`, `POST /internal/wake {appId}`, `POST /internal/touch {appId, userId}`.

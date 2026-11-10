@@ -65,6 +65,12 @@ scad admin audit --app olive/board
 | `invite.add`, `invite.remove` | operator |
 | `app.expiry_warning`, `app.expire`, `runtime.orphan`, `app.quota_stop` | lifecycle jobs |
 
+## Usage
+
+`scad admin usage` and the operator page at the control plane's `/admin`
+show per-app requests, viewers, running hours, and volume size. See
+[`usage.md`](usage.md).
+
 ## API
 
 `GET /v1/admin/users`, `POST /v1/admin/users/:id/suspend|unsuspend`,
