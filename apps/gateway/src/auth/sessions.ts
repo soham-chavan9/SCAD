@@ -1,6 +1,7 @@
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { schema } from "@scad/control-plane";
 import type { Db } from "@scad/control-plane";
+import { isUuid } from "@scad/shared";
 import type { GatewayUser } from "./users.js";
 
 type Database = Db["db"];
@@ -30,6 +31,9 @@ export async function loadSessionUser(
   opts: { sessionId: string; appHost: string; now?: Date },
 ): Promise<GatewayUser | null> {
   const now = opts.now ?? new Date();
+  // Session ids are UUIDs. Anything else is a forged cookie: treat it as no
+  // session (sign in again) instead of letting Postgres reject it with a 500.
+  if (!isUuid(opts.sessionId)) return null;
   const rows = await db
     .select({
       id: schema.users.id,

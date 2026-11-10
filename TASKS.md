@@ -178,10 +178,11 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Depends: T2.5. Done when: `scad admin usage` and a minimal operator page show per-app requests, unique viewers, last viewed, running hours, volume size.
   - Tests: `apps/control-plane/src/usage.integration.test.ts` (fake clock: touches, window, running hours across stop/wake, volume from the quota sweep, page CSP), `packages/cli/src/admin.test.ts`. Docs: `docs/usage.md`. `GET /v1/admin/usage` and the static operator page `GET /admin` on the control plane (token pasted into the page, kept in `sessionStorage`). Migration 0008 adds `machines.running_seconds`, `volume_bytes`, `volume_measured_at`; drivers may offer the optional `volumeUsage` capability. Page checked by hand in a browser with seeded data.
 
-- [ ] **T2.8 Adversarial test suite**
+- [x] **T2.8 Adversarial test suite**
   - Depends: T2.1, T2.2. Files: `tests/adversarial` with hostile sample apps.
   - Scenarios (all must be blocked, all run in CI): read another app's volume or env; reach control plane, metadata IP, host, Docker socket; exfiltrate to undeclared host; spoof identity headers; forge or replay cookies and login codes; exhaust CPU, memory, pids, disk; escape sandbox via privileged syscalls.
   - Done when: every scenario has a named test mapped to its INV number and the suite is green in CI.
+  - Tests: `tests/adversarial/src/hostile-apps.test.ts` (real Docker: `examples/adversarial/snoop`, `escape`, `cpu-hog`, `disk-filler`), `tests/adversarial/src/identity-and-sessions.test.ts` (INV3/4/5/10 against the real gateway and control plane), plus the existing INV2/INV6/INV8 files. Scenario to test to INV matrix: `tests/adversarial/README.md`. Fixed: a malformed session cookie returned `500` from the gateway (now treated as no session).
 
 - [ ] **T2.9 Runbook and README**
   - Depends: all above. Done when: `docs/runbook.md` covers restore, key rotation, suspend/delete user data, disaster reset; a fresh clone runs end-to-end locally in under 15 minutes following README.
