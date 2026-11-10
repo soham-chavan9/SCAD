@@ -4,6 +4,7 @@ import type { ManagedRuntime } from "@scad/runtime-conformance";
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, machines, releases, usageViewers } from "../db/schema.js";
 import { renewedExpiry, utcDay } from "../lifecycle/policy.js";
+import { accruedRunningSeconds } from "./running-time.js";
 import { ApiError } from "../errors.js";
 
 /** AGENTS §14 default: stop an app after 10 minutes without traffic. */
@@ -103,7 +104,12 @@ export class MachineController {
       })
       .onConflictDoUpdate({
         target: machines.appId,
-        set: { providerId: machine.providerId, state: "running", lastStartedAt: now },
+        set: {
+          providerId: machine.providerId,
+          runningSeconds: accruedRunningSeconds(now),
+          state: "running",
+          lastStartedAt: now,
+        },
       });
     await this.#db
       .update(apps)
@@ -216,8 +222,20 @@ export class MachineController {
       if (this.#ops.has(row.appId) || !row.providerId) continue;
       const ref = { appId: row.appId, providerId: row.providerId };
       const done = (async () => {
+        if (runtime.volumeUsage) {
+          // Record the size for the usage page (T2.7); only re-check over-limit volumes.
+          const usage = await runtime.volumeUsage(row.appId);
+          await this.#db
+            .update(machines)
+            .set({ volumeBytes: usage.usedBytes, volumeMeasuredAt: this.#now() })
+            .where(eq(machines.appId, row.appId));
+          if (usage.usedBytes <= usage.limitBytes) return false;
+        }
         if ((await runtime.enforceVolumeQuota!(ref)) !== "stopped") return false;
-        await this.#db.update(machines).set({ state: "stopped" }).where(eq(machines.appId, row.appId));
+        await this.#db
+          .update(machines)
+          .set({ runningSeconds: accruedRunningSeconds(this.#now()), state: "stopped" })
+          .where(eq(machines.appId, row.appId));
         await this.#db
           .update(apps)
           .set({ status: "stopped" })
@@ -291,7 +309,7 @@ export class MachineController {
     const now = this.#now();
     await this.#db
       .update(machines)
-      .set({ state: "running", lastStartedAt: now, lastRequestAt: now })
+      .set({ runningSeconds: accruedRunningSeconds(now), state: "running", lastStartedAt: now, lastRequestAt: now })
       .where(eq(machines.appId, appId));
     await this.#db
       .update(apps)
@@ -301,7 +319,10 @@ export class MachineController {
 
   async #doStop(appId: string, providerId: string): Promise<void> {
     await this.#runtime.stop({ appId, providerId });
-    await this.#db.update(machines).set({ state: "stopped" }).where(eq(machines.appId, appId));
+    await this.#db
+      .update(machines)
+      .set({ runningSeconds: accruedRunningSeconds(this.#now()), state: "stopped" })
+      .where(eq(machines.appId, appId));
     await this.#db
       .update(apps)
       .set({ status: "stopped" })

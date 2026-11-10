@@ -6,6 +6,8 @@ export {
   type AdminAppRef,
   type AdminUser,
   type AppShares,
+  type AppUsage,
+  type UsageReport,
   type AuditEvent,
   type Invite,
   type EnvEntry,

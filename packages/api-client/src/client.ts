@@ -73,6 +73,29 @@ export type AuditEvent = {
   metadata: Record<string, unknown>;
 };
 
+export type AppUsage = {
+  id: string;
+  owner: string;
+  slug: string;
+  status: string;
+  pinned: boolean;
+  requests: number;
+  unique_viewers: number;
+  last_viewed_at: string | null;
+  running_hours: number;
+  volume_bytes: number | null;
+  volume_measured_at: string | null;
+  expires_at: string | null;
+};
+
+export type UsageReport = {
+  window_days: number;
+  since: string;
+  generated_at: string;
+  apps: AppUsage[];
+  totals: { apps: number; running: number; requests: number; running_hours: number; volume_bytes: number };
+};
+
 export class ScadApiError extends Error {
   readonly status: number;
   readonly envelope: ErrorEnvelope | { error: string };
@@ -294,6 +317,11 @@ export class ScadClient {
 
   async adminRemoveInvite(email: string): Promise<{ email: string; removed: boolean }> {
     return this.#json(`/v1/admin/invites/${encodeURIComponent(email)}`, { method: "DELETE", auth: true });
+  }
+
+  /** §8 GET /admin/usage (T2.7): per-app requests, viewers, last viewed, running hours, volume size. */
+  async adminUsage(days?: number): Promise<UsageReport> {
+    return this.#json(`/v1/admin/usage${days !== undefined ? `?days=${days}` : ""}`, { auth: true });
   }
 
   async adminAudit(opts: { limit?: number; app?: string } = {}): Promise<{ events: AuditEvent[] }> {
