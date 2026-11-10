@@ -302,6 +302,11 @@ export class ScadClient {
     return this.#json(`/v1/admin/apps/${encodeURIComponent(app)}/${action}`, { method: "POST", auth: true });
   }
 
+  /** Operator delete (T2.9): removes the app's container, volume, env, logs, and shares. */
+  async adminDeleteApp(app: string): Promise<{ app: AdminAppRef }> {
+    return this.#json(`/v1/admin/apps/${encodeURIComponent(app)}`, { method: "DELETE", auth: true });
+  }
+
   async adminListInvites(): Promise<{ invites: Invite[] }> {
     return this.#json("/v1/admin/invites", { auth: true });
   }

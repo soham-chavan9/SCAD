@@ -10,6 +10,7 @@ export { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
 export { streamLogs } from "./logs.js";
 export {
   adminAudit,
+  adminDeleteApp,
   adminInviteAdd,
   adminInviteRemove,
   adminInvites,

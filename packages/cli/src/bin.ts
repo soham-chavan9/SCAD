@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import {
   adminAudit,
+  adminDeleteApp,
   adminInviteAdd,
   adminInviteRemove,
   adminInvites,
@@ -259,6 +260,16 @@ async function main(): Promise<void> {
         }),
       );
   }
+  cfg(admin.command("delete-app").description("Delete any app and its data (container, /data volume, env, logs, shares)"))
+    .argument("<app>", "App id or <owner-handle>/<slug>")
+    .option("--yes", "Confirm: this cannot be undone")
+    .action(
+      handleErrors(async (app: string, opts: { config: string; yes?: boolean }) => {
+        if (!opts.yes) throw new Error(`This permanently deletes ${app} and its /data volume. Re-run with --yes.`);
+        const out = await adminDeleteApp({ app, configPath: opts.config });
+        console.log(`${out.owner}/${out.slug}: deleted`);
+      }),
+    );
   const invite = admin.command("invite").description("Who may create an account (besides OPERATOR_EMAILS and shared-to emails)");
   cfg(invite.command("add").description("Invite an email").argument("<email>")).action(
     handleErrors(async (email: string, opts: { config: string }) => {

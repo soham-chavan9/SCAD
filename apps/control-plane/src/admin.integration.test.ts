@@ -161,6 +161,7 @@ describe.runIf(Boolean(databaseUrl))("operator controls and audit (T2.6)", () =>
     ["POST", "/v1/admin/users/op@example.com/unsuspend"],
     ["POST", "/v1/admin/apps/00000000-0000-4000-8000-000000000000/suspend"],
     ["POST", "/v1/admin/apps/00000000-0000-4000-8000-000000000000/unsuspend"],
+    ["DELETE", "/v1/admin/apps/00000000-0000-4000-8000-000000000000"],
   ])("a non-operator gets 403 FORBIDDEN on %s %s", async (method, path) => {
     const res = await call(
       method,
@@ -319,5 +320,18 @@ describe.runIf(Boolean(databaseUrl))("operator controls and audit (T2.6)", () =>
     const events = feed.body["events"] as { action: string; actor: string | null }[];
     expect(events.find((e) => e.action === "app.suspend")?.actor).toBe("op@example.com");
     expect(events.find((e) => e.action === "app.publish")?.actor).toBe("mem@example.com");
+  });
+
+  it("an operator can delete any app and its data (T2.9), audited with reason operator", async () => {
+    const appId = await runningApp("doomed", member.id);
+    const res = await call("DELETE", `/v1/admin/apps/mem%2Fdoomed`, operator.token);
+    expect(res.status).toBe(200);
+    expect(res.body["app"]).toMatchObject({ id: appId, status: "deleted" });
+    const [row] = await dbBundle.db.select().from(apps).where(eq(apps.id, appId));
+    expect(row?.status).toBe("deleted");
+    expect(await dbBundle.db.select().from(machines).where(eq(machines.appId, appId))).toHaveLength(0);
+    const [event] = await dbBundle.db.select().from(auditEvents).where(eq(auditEvents.appId, appId));
+    expect(event).toMatchObject({ action: "app.delete", actorId: operator.id, metadata: { reason: "operator" } });
+    expect((await call("DELETE", `/v1/admin/apps/${appId}`, operator.token)).status).toBe(404);
   });
 });

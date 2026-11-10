@@ -11,7 +11,7 @@ import { appAccess, apps, auditEvents, envVars, runtimeLogs } from "../db/schema
 export async function purgeAppData(
   db: Db["db"] | Tx,
   app: { id: string; slug: string },
-  audit: { actorId: string | null; reason: "owner" | "expired" },
+  audit: { actorId: string | null; reason: "owner" | "expired" | "operator" },
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.delete(appAccess).where(eq(appAccess.appId, app.id));
