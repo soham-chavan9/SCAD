@@ -1,6 +1,11 @@
 export const PACKAGE_NAME = "runtime-docker" as const;
 
-export { DockerRuntimeProvider, type DockerRuntimeOptions } from "./docker-provider.js";
+export {
+  DockerRuntimeProvider,
+  VOLUME_HELPER_IMAGE,
+  VolumeQuotaExceededError,
+  type DockerRuntimeOptions,
+} from "./docker-provider.js";
 export {
   appLabels,
   assertAppId,

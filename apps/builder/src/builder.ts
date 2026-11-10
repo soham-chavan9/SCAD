@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyManifestDefaults, makeError, type ManifestInput } from "@scad/shared";
-import { DockerRuntimeProvider } from "@scad/runtime-docker";
+import { DockerRuntimeProvider, VolumeQuotaExceededError } from "@scad/runtime-docker";
 import { dockerBuild } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
@@ -31,6 +31,24 @@ export function startToArgv(start: string): string[] {
     if (token.length > 0) out.push(token);
   }
   return out;
+}
+
+/** §8 envelope for a deploy that the runtime refused. */
+export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> {
+  if (err instanceof VolumeQuotaExceededError) {
+    return makeError(
+      "LIMIT_EXCEEDED",
+      `The app's /data volume uses ${Math.ceil(err.usedBytes / 1048576)} MiB, over its ${Math.floor(err.limitBytes / 1048576)} MiB limit`,
+      'Delete data under /data, or raise "resources.disk_gb" in scad.json (cap 5), then republish. The previous release keeps its data.',
+      { used_bytes: err.usedBytes, limit_bytes: err.limitBytes },
+    );
+  }
+  return makeError(
+    "BUILD_FAILED",
+    err instanceof Error ? err.message : "Builder failed",
+    "Inspect the build log, fix the app, and republish.",
+    {},
+  );
 }
 
 export type ClaimedJob = {
@@ -155,15 +173,7 @@ export class Builder {
       await this.#log(job.releaseId, `deployed ${machine.providerId}`);
     } catch (err) {
       await this.#log(job.releaseId, `builder error: ${String(err)}`);
-      await this.#fail(
-        job.releaseId,
-        makeError(
-          "BUILD_FAILED",
-          err instanceof Error ? err.message : "Builder failed",
-          "Inspect the build log, fix the app, and republish.",
-          {},
-        ),
-      );
+      await this.#fail(job.releaseId, deployErrorEnvelope(err));
     } finally {
       await rm(work, { recursive: true, force: true });
     }
