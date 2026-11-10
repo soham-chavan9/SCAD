@@ -37,7 +37,8 @@ from.
 - **Flood cap.** At most 2,000 lines per app per 250 ms flush. Extra lines are
   counted and stored as one `[scad] N log lines dropped` line.
 - **Secrets (INV12).** Before a line is stored, the value of each of the app's
-  secret env vars (6 characters or longer) is replaced with `[redacted]`. The
+  secret env vars is replaced with `[redacted]`, however short (a very short
+  secret may also mask matching ordinary text). The
   platform never writes tokens, cookies, or identity JWTs into the table.
 - Rows are deleted with their app (`ON DELETE CASCADE`).
 

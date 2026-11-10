@@ -153,6 +153,28 @@ describe.runIf(Boolean(databaseUrl))("runtime log store (T1.7b)", () => {
     }
   });
 
+  it("redacts short secret values too (INV12: logs never contain secrets)", async () => {
+    const runtime = new FeedRuntime();
+    const collector = new RuntimeLogCollector({
+      db: dbBundle.db,
+      runtime,
+      flushMs: 20,
+      secretsFor: async () => ["pin7", "", "s3cr3t-value-123"],
+    });
+    try {
+      runtime.feed("c2", "pin is pin7, key is s3cr3t-value-123");
+      await collector.attach(appId, "c2");
+      runtime.feed("c2", "done");
+      await until(async () => (await storedLines()).includes("done"));
+
+      const lines = await storedLines();
+      expect(lines).toEqual(["pin is [redacted], key is [redacted]", "done"]);
+      expect(lines.join("\n")).not.toContain("pin7");
+    } finally {
+      await collector.close();
+    }
+  });
+
   it("resumes a container it already stored without duplicating old lines", async () => {
     await appendRuntimeLogs(dbBundle.db, [{ appId, providerId: "c1", line: "from before" }]);
     const runtime = new FeedRuntime();

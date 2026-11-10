@@ -6,8 +6,6 @@ import { appendRuntimeLogs, hasContainerLogs, type RuntimeLogInsert } from "./ru
 
 /** How far back to read a container the store has never seen (its whole recent log). */
 const NEW_CONTAINER_TAIL = 10_000;
-/** Shorter values are too likely to match ordinary text to redact safely. */
-const MIN_REDACT_LENGTH = 6;
 
 export type RuntimeLogCollectorOpts = {
   db: Db["db"];
@@ -120,7 +118,9 @@ export class RuntimeLogCollector {
     }
     const known = await hasContainerLogs(this.#db, appId, providerId);
     const secrets = ((await this.#secretsFor?.(appId)) ?? [])
-      .filter((v) => v.length >= MIN_REDACT_LENGTH)
+      // Every explicit secret is redacted, however short (INV12). A short one may also
+      // mask matching ordinary text; that over-redaction is the safe side.
+      .filter((v) => v.length > 0)
       .sort((a, b) => b.length - a.length);
     const lines = this.#runtime.logs(
       { appId, providerId },
