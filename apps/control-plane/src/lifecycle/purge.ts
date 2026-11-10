@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+import type { Tx } from "./app-lock.js";
 import { appAccess, apps, auditEvents, envVars, runtimeLogs } from "../db/schema.js";
 
 /**
@@ -8,7 +9,7 @@ import { appAccess, apps, auditEvents, envVars, runtimeLogs } from "../db/schema
  * publishing the same name later starts fresh. `actorId` null = the platform.
  */
 export async function purgeAppData(
-  db: Db["db"],
+  db: Db["db"] | Tx,
   app: { id: string; slug: string },
   audit: { actorId: string | null; reason: "owner" | "expired" },
 ): Promise<void> {

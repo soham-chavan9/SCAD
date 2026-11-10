@@ -4,7 +4,7 @@ import type { Db } from "../db/client.js";
 import { apps, auditEvents, machines, usageDaily, usageViewers, users } from "../db/schema.js";
 import type { MachineController } from "../machines/controller.js";
 import { EXPIRY_GRACE_MS, EXPIRY_WARNING_MS, utcDay } from "./policy.js";
-import { purgeAppData } from "./purge.js";
+import { deleteApp } from "./delete.js";
 
 export type MailMessage = { to: string; subject: string; text: string };
 export type Mailer = { send(message: MailMessage): Promise<void> };
@@ -136,9 +136,16 @@ export class LifecycleJobs {
       .where(and(eq(apps.status, "expired"), eq(apps.pinned, false), lte(apps.expiresAt, cutoff)));
     const deleted: string[] = [];
     for (const app of due) {
-      await this.#machines.removeApp(app.id);
-      await purgeAppData(this.#db, app, { actorId: null, reason: "expired" });
-      deleted.push(app.id);
+      // Re-checked under the app's lock: an owner may have republished it
+      // since the query above, and a revived app must keep its data.
+      const done = await deleteApp(
+        this.#db,
+        this.#machines,
+        app.id,
+        { actorId: null, reason: "expired" },
+        (row) => row.status === "expired" && !row.pinned && row.expiresAt !== null && row.expiresAt <= cutoff,
+      );
+      if (done) deleted.push(app.id);
     }
     return deleted;
   }

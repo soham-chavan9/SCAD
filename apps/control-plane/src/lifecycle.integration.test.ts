@@ -152,6 +152,38 @@ describe.runIf(Boolean(databaseUrl))("lifecycle jobs with a fake clock (T2.5)", 
     );
   });
 
+  it("never deletes an app that was republished after the deleter picked its candidates", async () => {
+    const a = await liveApp("expired-a");
+    const b = await liveApp("expired-b");
+    advanceTo(30 * DAY);
+    expect((await jobs.expire()).sort()).toEqual([a, b].sort());
+    advanceTo(44 * DAY);
+
+    // Both are candidates. While the deleter removes whichever comes first, the
+    // owner republishes the other (what publish does: building, expiry renewed).
+    const remove = runtime.remove.bind(runtime);
+    let republished: string | undefined;
+    runtime.remove = async (appId, opts) => {
+      if (!republished) {
+        republished = appId === a ? b : a;
+        await dbBundle.db
+          .update(apps)
+          .set({ status: "building", expiresAt: new Date(clock.getTime() + 30 * DAY) })
+          .where(eq(apps.id, republished));
+      }
+      await remove(appId, opts);
+    };
+
+    const deleted = await jobs.deleteExpired();
+    expect(deleted).toHaveLength(1);
+    expect(deleted).not.toContain(republished);
+    expect((await appRow(republished!)).status).toBe("building");
+    expect(runtime.calls).not.toContain(`remove:${republished}:true`);
+    expect(
+      await dbBundle.db.select().from(appAccess).where(eq(appAccess.appId, republished!)),
+    ).toHaveLength(1);
+  });
+
   it("viewing renews expiry to 30 days from the view and re-arms the warning", async () => {
     const id = await liveApp("busy");
     advanceTo(24 * DAY);

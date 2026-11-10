@@ -13,6 +13,7 @@ import {
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, releases, users } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
+import { lockApp } from "../lifecycle/app-lock.js";
 import { renewedExpiry } from "../lifecycle/policy.js";
 import { readRootScadJson, ScadJsonTooLargeError } from "../manifest-from-tarball.js";
 import { saveTarball, type DataPaths } from "../storage.js";
@@ -166,11 +167,19 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
 
     const maxLiveApps = opts.maxLiveApps ?? MAX_LIVE_APPS;
     const appRow = await opts.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(apps)
-        .where(and(eq(apps.ownerId, ownerId), eq(apps.slug, slugCandidate)))
-        .limit(1);
+      const findExisting = () =>
+        tx
+          .select()
+          .from(apps)
+          .where(and(eq(apps.ownerId, ownerId), eq(apps.slug, slugCandidate)))
+          .limit(1);
+      let [existing] = await findExisting();
+      if (existing) {
+        // Wait out a delete in progress (owner or expiry), then decide on the
+        // row as it is now: a deleted app starts fresh.
+        await lockApp(tx, existing.id);
+        [existing] = await findExisting();
+      }
       const takesNewSlot = !existing || existing.status === "deleted" || existing.status === "expired";
       if (takesNewSlot) {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(${LIVE_APPS_LOCK_KEY})`);
