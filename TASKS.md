@@ -124,8 +124,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: secrets are write-only (never returned by GET, never in logs, never in audit metadata); injected at start; rotating `MASTER_KEY` procedure documented (INV7, INV12).
   - Tests: `apps/control-plane/src/secrets/crypto.test.ts`, `apps/control-plane/src/env.integration.test.ts`, `packages/cli/src/env.test.ts`, real-Docker case in `publish.integration.test.ts`. Docs: `docs/secrets.md`. Envelope encryption (per-record data key wrapped by `MASTER_KEY`); `scad env set|unset|ls`; env changes redeploy the app. Adds `GET /v1/apps/:id/env` to the §8 routes.
 
-- [ ] **T1.7 Runtime logs**
+- [x] **T1.7 Runtime logs**
   - Depends: T0.4. Done when: `scad logs <app> -f` streams live stdout/stderr; non-owners cannot read logs; 7-day retention job.
+  - Tests: `packages/runtime-docker/src/logs-stream.test.ts` (real Docker follow), `apps/control-plane/src/logs.integration.test.ts` (SSE, INV10, disconnect, retention job), `packages/cli/src/logs.test.ts`. Docs: `docs/logs.md`. Runtime logs: Docker json-file 3x10 MB plus a 7-day read window (no hard time-based delete with json-file); build logs: daily 7-day prune.
 
 - [ ] **T1.8 MCP server**
   - Depends: T0.5, T1.2, T1.6, T1.7. Files: `packages/mcp-server`.

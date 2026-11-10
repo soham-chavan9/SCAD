@@ -27,7 +27,20 @@ export type DockerRuntimeOptions = {
   gatewayContainerName?: string | null;
   /** Bytes per `diskGb` unit. Default 1 GiB; tests shrink it to keep fills small. */
   bytesPerDiskGb?: number;
+  /** Only log lines newer than this are served (AGENTS §14: 7-day log retention). */
+  logRetentionMs?: number;
 };
+
+/** AGENTS §14 default log retention. */
+export const LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Docker keeps at most 3 x 10 MB of logs per container. json-file has no
+ * time-based retention, so the 7-day window is applied when logs are read.
+ */
+export const APP_LOG_CONFIG = {
+  Type: "json-file",
+  Config: { "max-size": "10m", "max-file": "3" },
+} as const;
 
 const DEFAULT_GATEWAY_CONTAINER = "scad-gateway";
 const GIB = 1024 * 1024 * 1024;
@@ -56,10 +69,12 @@ export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #docker: Docker;
   readonly #gatewayContainerName: string | null;
   readonly #bytesPerDiskGb: number;
+  readonly #logRetentionMs: number;
 
   constructor(options: DockerRuntimeOptions = {}) {
     this.#docker = new Docker(options.docker);
     this.#bytesPerDiskGb = options.bytesPerDiskGb ?? GIB;
+    this.#logRetentionMs = options.logRetentionMs ?? LOG_RETENTION_MS;
     this.#gatewayContainerName =
       options.gatewayContainerName === undefined
         ? DEFAULT_GATEWAY_CONTAINER
@@ -117,6 +132,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         Tmpfs: {
           "/tmp": "rw,noexec,nosuid,size=64m",
         },
+        LogConfig: { Type: APP_LOG_CONFIG.Type, Config: { ...APP_LOG_CONFIG.Config } },
       },
     };
 
@@ -198,12 +214,14 @@ export class DockerRuntimeProvider implements RuntimeProvider {
   ): AsyncIterable<string> {
     const container = this.#docker.getContainer(m.providerId);
     const tail = opts.tail ?? 100;
+    const since = Math.floor((Date.now() - this.#logRetentionMs) / 1000);
     if (opts.follow) {
       const stream = (await container.logs({
         stdout: true,
         stderr: true,
         follow: true,
         tail,
+        since,
       })) as unknown as Readable;
       yield* linesFromDockerLogs(stream);
       return;
@@ -213,6 +231,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
       stderr: true,
       follow: false,
       tail,
+      since,
     });
     yield* linesFromDockerLogs(buf);
   }
