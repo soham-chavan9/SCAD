@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -87,6 +87,9 @@ describe("egress proxy and network policy (INV1, INV2, real Docker)", () => {
   beforeAll(async () => {
     online = await internetAvailable();
     policyDir = await mkdtemp(join(tmpdir(), "scad-egress-policy-"));
+    // mkdtemp makes it owner-only; the proxy runs as `node` (uid 1000) and on
+    // Linux must be able to list it. The driver does the same for its own dir.
+    await chmod(policyDir, 0o755);
     await docker("build", "-q", "-t", `scad-test/egress-proxy:${suffix}`, "-f", join(PROXY_DIR, "Dockerfile"), PROXY_DIR);
     await execFileAsync("sh", ["-c", `printf '%s' "$DF" | docker build -q --network=none -t ${APP_IMAGE} -`], {
       env: { ...process.env, DF: APP_DOCKERFILE },

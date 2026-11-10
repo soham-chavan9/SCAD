@@ -51,6 +51,13 @@ policy directory first so Docker doesn't create it as root:
 mkdir -p ~/.scad/egress-policy
 ```
 
+The proxy reads this directory as the container user `node` (uid 1000), not
+as you. The driver keeps it `0755`. On Linux, every parent directory must also
+be traversable by uid 1000: a home directory with mode `0750` or `0700` blocks
+it. In that case, set `SCAD_EGRESS_POLICY_DIR` to a path outside your home.
+If the proxy can't read the directory, it logs `egress policy dir ... is
+unreadable` and refuses all egress.
+
 Approve domains in `.env`, then `docker compose up -d egress-proxy` to apply:
 
 ```

@@ -151,11 +151,21 @@ function isPolicy(value: unknown): value is AppPolicy {
   );
 }
 
+/** Warn once per distinct failure, not on every 1 s reload. */
+let lastPolicyDirError = "";
+
 export async function loadPolicies(dir: string): Promise<AppPolicy[]> {
   let names: string[];
   try {
     names = await readdir(dir);
-  } catch {
+    lastPolicyDirError = "";
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? "unknown";
+    if (code !== lastPolicyDirError) {
+      lastPolicyDirError = code;
+      // Every app is refused as "unknown source" until this is fixed.
+      console.warn(`egress policy dir ${dir} is unreadable (${code}): all egress is refused`);
+    }
     return [];
   }
   const out: AppPolicy[] = [];

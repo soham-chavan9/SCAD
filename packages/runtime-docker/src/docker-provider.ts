@@ -5,7 +5,7 @@ import type {
   Reachable,
   RuntimeProvider,
 } from "@scad/runtime-conformance";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
@@ -626,6 +626,9 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     const subnet = (info.IPAM?.Config ?? []).map((c) => c.Subnet).find((v): v is string => Boolean(v));
     if (!subnet) throw new Error(`network ${networkName(appId)} has no subnet`);
     await mkdir(this.#egressPolicyDir, { recursive: true });
+    // The proxy reads this as `node` (uid 1000), not the host user: keep it
+    // listable (policies hold only subnets and domain names, no secrets).
+    await chmod(this.#egressPolicyDir, 0o755);
     const file = this.#policyPath(appId);
     const tmp = `${file}.${process.pid}.tmp`;
     await writeFile(tmp, `${JSON.stringify({ appId, subnet, allow })}\n`, { mode: 0o644 });
