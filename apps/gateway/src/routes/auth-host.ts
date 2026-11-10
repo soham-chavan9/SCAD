@@ -45,7 +45,8 @@ import {
 export type AuthHostOpts = {
   db: Db["db"];
   baseDomain: string;
-  identity: IdentityProvider;
+  /** GitHub sign-in; `null` when GITHUB_CLIENT_ID/SECRET are not set (magic links only). */
+  identity: IdentityProvider | null;
   keys: IdentityKeyMaterial;
   /** When set, /login/dev completes OAuth with this code (tests only). */
   allowDevLogin?: boolean;
@@ -145,10 +146,12 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
     const csrf = csrfToken(request, reply);
     return reply
       .type("text/html")
-      .send(loginPage({ returnTo: parsed.returnToUrl.toString(), csrf }));
+      .send(loginPage({ returnTo: parsed.returnToUrl.toString(), csrf, github: opts.identity !== null }));
   });
 
   app.get("/login/github", async (request, reply) => {
+    const identity = opts.identity;
+    if (!identity) return githubDisabled(reply);
     const query = request.query as { return_to?: string };
     const parsed = parseReturnTo(query.return_to, opts.baseDomain);
     if (!parsed) {
@@ -156,7 +159,7 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
     }
 
     const { state, codeVerifier } = await createOauthState(opts.db, parsed.returnToUrl.toString());
-    const url = await opts.identity.getAuthorizationUrl({
+    const url = await identity.getAuthorizationUrl({
       state,
       codeVerifier,
       redirectUri: redirectUri(),
@@ -302,7 +305,16 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
     return completeOauth(query.code, query.state, reply);
   });
 
+  function githubDisabled(reply: FastifyReply) {
+    return reply
+      .status(404)
+      .type("text/html")
+      .send(badCallbackPage("GitHub sign-in is not set up on this instance. Use the emailed sign-in link instead."));
+  }
+
   async function completeOauth(code: string, state: string, reply: FastifyReply) {
+    const identity = opts.identity;
+    if (!identity) return githubDisabled(reply);
     const oauth = await takeOauthState(opts.db, state);
     if (!oauth) {
       return reply.status(400).type("text/html").send(badCallbackPage("Invalid or expired state"));
@@ -310,7 +322,7 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
 
     let profile;
     try {
-      profile = await opts.identity.exchangeCode({
+      profile = await identity.exchangeCode({
         code,
         codeVerifier: oauth.codeVerifier,
         redirectUri: redirectUri(),
