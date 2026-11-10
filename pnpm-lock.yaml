@@ -270,6 +270,12 @@ importers:
       '@scad/builder':
         specifier: workspace:*
         version: link:../../apps/builder
+      '@scad/runtime-docker':
+        specifier: workspace:*
+        version: link:../../packages/runtime-docker
+      '@scad/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
 
   tests/e2e:
     devDependencies:

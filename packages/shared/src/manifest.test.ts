@@ -87,3 +87,31 @@ describe("manifest field-level errors (T1.5)", () => {
     expect(hint).toContain("prot");
   });
 });
+
+describe("manifest egress domains (T2.1)", () => {
+  it.each([["api.github.com"], ["*.googleapis.com"], ["example.com"]])("accepts %s", (domain) => {
+    expect(parseManifest({ egress: [domain] }).success).toBe(true);
+  });
+
+  it.each([
+    ["169.254.169.254"],
+    ["10.0.0.1"],
+    ["[::1]"],
+    ["localhost"],
+    ["api.github.com:443"],
+    ["https://api.github.com"],
+    ["*"],
+    ["*.com"],
+    ["a..b.com"],
+    ["API.GITHUB.COM"],
+    ["host.docker.internal"],
+    ["metadata.google.internal"],
+  ])("rejects %s", (domain) => {
+    expect(parseManifest({ egress: [domain] }).success).toBe(false);
+  });
+
+  it("caps the list at 50 domains", () => {
+    const egress = Array.from({ length: 51 }, (_, i) => `h${i}.example.com`);
+    expect(parseManifest({ egress }).success).toBe(false);
+  });
+});

@@ -112,7 +112,7 @@ docs/                  this brief, tasks, threat model, runbook
 
 ## 6. Local development environment
 
-- `docker compose up -d` starts Postgres, Mailpit, and the gateway. The egress proxy is not in Compose until T2.1. Control plane and builder run on the host (`pnpm --filter @scad/control-plane start` and `pnpm --filter @scad/builder start`); they need the Docker socket.
+- `docker compose up -d` starts Postgres, Mailpit, the gateway, and the egress proxy (`scad-egress`; see `docs/egress.md`). Control plane and builder run on the host (`pnpm --filter @scad/control-plane start` and `pnpm --filter @scad/builder start`); they need the Docker socket.
 - Hostnames: `*.localhost` resolves to loopback in Chrome and Firefox. Safari may not; fallback is a local dnsmasq or `/etc/hosts` entries. Document this in README.
 - Ports: gateway `8080`, control plane `4000`, Mailpit UI `8025`, Postgres `5432`.
 - Auth host: `http://auth.localhost:8080`. App host pattern (not a URL): `http://{slug}.{owner}.localhost:8080` — e.g. `http://hello-node.<handle>.localhost:8080`.

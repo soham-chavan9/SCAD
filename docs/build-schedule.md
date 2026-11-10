@@ -1,6 +1,6 @@
-# SCAD 5-day build schedule (agent notes)
+# SCAD 5-day build schedule (daily run notes)
 
-Plan: Day 1 (Nov 6) T0.9, T1.1, T1.2, T1.3 · Day 2 T1.4–T1.7 · Day 3 T1.8, T1.9, T2.1 ·
+Plan: Day 1 (Nov 6) T0.9, T1.1, T1.2, T1.3 · Day 2 T1.4–T1.7 · Day 3 T1.7b, T1.8, T1.9, T2.1 ·
 Day 4 T2.2–T2.5 · Day 5 T2.6–T2.9. Never start M3.
 
 ## Day 1 — 2026-11-06
@@ -89,7 +89,7 @@ it takes over an hour. Instead, on `task/t1-3-data-volume`:
 
 `gh` is still **not authenticated**, so again nothing was pushed and no PRs
 exist. Docker Desktop was **paused** at the start of the run (`docker info`:
-"manually paused"); the agent ran `docker desktop restart` to resume it. The
+"manually paused"); the daily run ran `docker desktop restart` to resume it. The
 Day 1 Docker stalls may have been this pause, so the full run below rechecks.
 
 Today's branches continue the local stack:
@@ -166,33 +166,153 @@ the host, and since T1.6 it also has the app's env. This predates Day 2. Fix it
 in T2.1/T2.2: run smoke on an internal network with the deploy's hardening, and
 probe from a helper container on that network.
 
+## Day 3 — 2026-11-08
+
+`gh` is now authenticated (account `soham-chavan9`). At the start of the run the
+eight Day 1–2 branches were pushed (attribution check clean) and their stacked
+PRs opened. Docker Desktop was running (not paused).
+
+```
+origin/dev
+ └─ task/t0-9-build-isolation      #19 → dev
+     └─ task/t1-1-magic-link        #20
+         └─ task/t1-2-sharing       #26
+             └─ task/t1-3-data-volume  #21
+                 └─ task/t1-4-idle-wake   #22
+                     └─ task/t1-5-manifest   #23
+                         └─ task/t1-6-env-secrets   #24
+                             └─ task/t1-7-runtime-logs   #25
+                                 └─ task/t1-7b-log-deletion   #27
+                                     └─ task/t1-8-mcp-server   #28
+                                         └─ task/t1-9-identity-rotation   #29
+                                             └─ task/t2-1-egress-proxy   #30
+```
+
+Each PR targets its parent branch. Merge in order from #19; after each merge,
+retarget the next PR to `dev` (GitHub does this automatically when the base
+branch is deleted on merge).
+
+| Task | Status | Branch | PR | Not verified / notes |
+|---|---|---|---|---|
+| T0.9 Build isolation | done (Day 1) | `task/t0-9-build-isolation` | [#19](https://github.com/soham-chavan9/small-cloud/pull/19) | — |
+| T1.1 Magic link | done (Day 1) | `task/t1-1-magic-link` | [#20](https://github.com/soham-chavan9/small-cloud/pull/20) | Manual browser click-through |
+| T1.2 Sharing | done (Day 1) | `task/t1-2-sharing` | [#26](https://github.com/soham-chavan9/small-cloud/pull/26) | Friend's own browser (M1 exit) |
+| T1.3 `/data` | done (Day 1) | `task/t1-3-data-volume` | [#21](https://github.com/soham-chavan9/small-cloud/pull/21) | Limit is measured (accepted) |
+| T1.4 Idle/wake | done (Day 2) | `task/t1-4-idle-wake` | [#22](https://github.com/soham-chavan9/small-cloud/pull/22) | Wait page not clicked in a browser |
+| T1.5 Manifest | done (Day 2) | `task/t1-5-manifest` | [#23](https://github.com/soham-chavan9/small-cloud/pull/23) | — |
+| T1.6 Env/secrets | done (Day 2) | `task/t1-6-env-secrets` | [#24](https://github.com/soham-chavan9/small-cloud/pull/24) | Rotation not run on a live instance |
+| T1.7 Runtime logs | done (Day 2) | `task/t1-7-runtime-logs` | [#25](https://github.com/soham-chavan9/small-cloud/pull/25) | Retention made real in T1.7b |
+| T1.7b Log deletion + §8 routes | done | `task/t1-7b-log-deletion` | [#27](https://github.com/soham-chavan9/small-cloud/pull/27) | Lines written while the control plane is down are not collected |
+| T1.8 MCP server | done | `task/t1-8-mcp-server` | [#28](https://github.com/soham-chavan9/small-cloud/pull/28) | Not tried from a real MCP client app (stdio bin untested by hand) |
+| T1.9 Identity token hardening | done | `task/t1-9-identity-rotation` | [#29](https://github.com/soham-chavan9/small-cloud/pull/29) | Rotation not run against the Compose gateway by hand |
+| T2.1 Egress proxy | done | `task/t2-1-egress-proxy` | [#30](https://github.com/soham-chavan9/small-cloud/pull/30) | Smoke check still runs off the app network (moved to T2.2) |
+
+### What changed
+
+- **T1.7b** (human decision: real deletion). New `runtime_logs` table
+  (migration 0005). A `RuntimeLogCollector` in the control plane follows each
+  running app and copies its lines into the table. It attaches on wake and
+  redeploy, plus a 5 s sweep for builder deploys and restarts. New containers
+  are read from their start; known ones resume without duplicates.
+  - Secret env values are redacted before insert.
+  - Flood cap: 2,000 lines per app per 250 ms, with a "dropped" marker line.
+  - `scad logs` and the SSE route read only from the table; `-f` checks it
+    every 300 ms.
+  - The daily job **deletes** rows older than 7 days. The test counts rows
+    directly in SQL.
+  - Docker json-file shrank to 2 x 1 MB.
+  - AGENTS.md §8 now lists the approved routes (`GET/PATCH` share and
+    visibility, `GET env`, internal `runtime-env`). `docs/data-volume.md`
+    records the measured-limit decision.
+- **T1.8**: `@scad/mcp-server` (`scad-mcp` stdio) with `publish`, `list_apps`,
+  `get_app`, `share`, `unshare`, `set_env`, `get_logs`, `delete_app`.
+  - Errors are the §8 envelope; `delete_app` needs `confirm: true`.
+  - Added §8 `DELETE /v1/apps/:id` (owner-only; removes container and
+    volume; clears shares, env, logs; audited).
+  - `BUILD_FAILED` hints now recognise download failures under
+    `--network=none` and say to vendor dependencies. The e2e test drives a
+    scripted agent through fail → fix → succeed.
+  - Dependency: `@modelcontextprotocol/sdk@1.32.2`.
+- **T1.9**: `kid` is now the RFC 7638 thumbprint.
+  - `JWT_PREVIOUS_PUBLIC_KEY` keeps retired keys in the JWKS during a
+    rotation.
+  - JWKS is served with `Cache-Control: public, max-age=300`.
+  - `@scad/shared` `verifyIdentityJwtWithJwks` selects keys by kid.
+  - `examples/echo-identity` refetches the JWKS once on an unknown kid.
+  - `docs/identity.md` has the snippet and runbook.
+- **T2.1**: `apps/egress-proxy` (Node built-ins only, runs via type
+  stripping; image builds offline).
+  - The driver attaches `scad-egress` to every app network, sets
+    `HTTP(S)_PROXY` (apps can't override it), and writes
+    `{appId, subnet, allow}` policy files to `~/.scad/egress-policy`, which
+    the proxy mounts read-only.
+  - The proxy identifies apps by source subnet. It requires manifest `egress`
+    ∩ operator `EGRESS_ALLOWED_DOMAINS` (empty = deny all), resolves DNS
+    itself, and refuses any private, loopback, link-local, metadata, or
+    reserved address.
+  - Manifest `egress` entries are now validated as public hostnames.
+  - New Compose service `egress-proxy`.
+
+### Tests
+
+Full gate on `task/t2-1-egress-proxy` (top of the stack; includes every Day 1–3 change):
+
+- `pnpm lint && pnpm typecheck`: green.
+- `pnpm test`: **66 files, 316 tests passed**, including every Docker-backed
+  suite, the new real-Docker egress suite, and the MCP e2e.
+- `pnpm test:adversarial`: 3 files / 15 tests passed. `pnpm test:e2e`: 2 files
+  / 3 tests passed. Both first failed because two new tests used paths relative
+  to the working directory (these scripts run from `tests/*`); fixed on the
+  T2.1 branch. The T1.8 PR alone still has that bug in
+  `tests/e2e/src/mcp-agent.test.ts` under `pnpm test:e2e` (root `pnpm test`
+  is fine); the fix lands with T2.1.
+- On the T1.8 branch, two runtime-docker tests first failed on leaked
+  networks (see below); they re-ran green after cleanup.
+- Today's egress run had internet access, so the "allowed domain works" and
+  DNS-rebinding cases ran (not skipped).
+
+### Finding: leaked Docker networks
+
+When Docker-backed tests stall or crash, their per-app `scad-net-*` networks
+are left behind. Once there are about 24, Docker refuses to create more ("all
+predefined address pools have been fully subnetted") and runtime-docker tests
+fail. That happened today on the T1.8 run. The daily run removed the 20 empty
+networks that belonged to no app in the dev database; re-runs were green. To
+clean up by hand:
+
+```bash
+docker network ls --format '{{.Name}}' | grep '^scad-net-' | xargs -n1 docker network rm 2>/dev/null
+```
+
+(Removing a network that still has a container fails harmlessly.) T2.5's
+orphan reaper should also reap networks.
+
+## Resolved by human (Nov 8)
+
+1. **gh auth / PRs.** `gh` is authenticated; all branches are pushed and the
+   stacked PRs #19–#29 are open.
+2. **`/data` size limit (T1.3).** The measured limit is accepted for local and
+   M2: "measured, not hard; revisit with the M3 provider". Documented in
+   `docs/data-volume.md`; no code change.
+3. **Runtime log retention (T1.7).** Real deletion required. Done in T1.7b
+   (`runtime_logs` table plus a daily delete job), PR #27.
+4. **API routes.** `GET /v1/apps/:id/share`, `PATCH /v1/apps/:id {visibility}`,
+   `GET /v1/apps/:id/env`, and internal `POST /internal/builds/:id/runtime-env`
+   are approved and added to AGENTS.md §8 (in PR #27).
+5. **Sign-up / `visibility=instance`.** An invite allowlist will be built in
+   T2.6 (Day 5): `OPERATOR_EMAILS`, shared emails, and an operator-managed
+   invite list.
+
 ## Blocked: needs human
 
-1. **gh auth / PRs.** Run `gh auth login`, then push the eight stacked
-   branches (T0.9 → T1.7) and open PRs in order, each based on its parent (or
-   ask the agent to on the next run).
-2. **Hard `/data` size limit (T1.3).** Docker local volumes cannot enforce a
-   size (loop mounts are rejected; tmpfs is not persistent). Implemented a
-   measured limit instead. Options: accept measured limits for local/M2; use XFS
-   project quotas or LVM on a Linux host; rely on Fly volumes (M3). Your call.
-3. **AGENTS §8 route list.** T1.2 added `GET /v1/apps/:id/share` and
-   `PATCH /v1/apps/:id`. Approve and add them to AGENTS.md, or say how you want
-   `scad ls <app>` and `visibility=instance` exposed instead.
-4. **`visibility=instance` vs open GitHub sign-up.** While any GitHub user can
-   create an account, `instance` means anyone with GitHub. Already listed in
-   §14 as a pre-exposure fix (invite allowlist); flagging because T1.2 makes
-   it reachable via `scad share --instance`.
-5. Still open from T0.8: human GitHub second-account 403 browser check.
-6. **More §8 route additions (T1.6, T1.7 notes).** `GET /v1/apps/:id/env`
-   (lists keys; secret values never returned) was added alongside the §8
-   `PUT`. Internal-only `POST /internal/builds/:id/runtime-env` was added for the
-   builder. Approve and add them to AGENTS.md §8.
-7. **Runtime log retention is a read window, not deletion (T1.7).** Docker's
-   `json-file` driver cannot delete lines by age. Lines older than 7 days are
-   never served, and disk is capped at 30 MB per container, but old lines stay
-   on disk until rotation or redeploy. Options: accept this; switch to shipping
-   logs to our own store with real TTL deletion; or restart idle containers
-   weekly. Data retention policy is yours to decide (AGENTS §15).
-8. **Docker Desktop was paused** when the Day 2 run started; the agent restarted
-   it. If you pause it on purpose, the scheduled build cannot run its Docker
-   tests.
+1. Still open from T0.8: the GitHub second-account 403 browser check.
+2. **Merges.** PRs #19 → T2.1 are stacked; merge them in order.
+3. **Egress approvals.** `EGRESS_ALLOWED_DOMAINS` is empty by default, so no app
+   can reach any domain until you list the ones you approve (or set `*` to
+   approve whatever apps declare). Which default is right is your call
+   (AGENTS §15: widening app access).
+4. **Smoke check off the app network (open since Day 2).** The builder's
+   smoke check still runs the new image on Docker's default bridge (with
+   internet and its env) for up to 30 s. Planned for T2.2 tomorrow.
+5. If you pause Docker Desktop on purpose, the scheduled run cannot run its
+   Docker tests (it restarts Docker when it finds it paused).

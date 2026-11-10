@@ -40,6 +40,10 @@ examples/      hello-node (more later)
 docs/          pointers to AGENTS.md / TASKS.md; more docs later
 ```
 
+## Outbound network
+
+Apps can only reach domains declared in `scad.json` `egress` and approved in `EGRESS_ALLOWED_DOMAINS`; run `mkdir -p ~/.scad/egress-policy` before `docker compose up -d`. See `docs/egress.md`.
+
 ## Agents (MCP)
 
 Run `scad login`, then point your agent at the `scad-mcp` stdio server: see `docs/mcp.md`.

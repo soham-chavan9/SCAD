@@ -5,6 +5,9 @@ import type {
   Reachable,
   RuntimeProvider,
 } from "@scad/runtime-conformance";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 import Docker from "dockerode";
 import { linesFromDockerLogs } from "./logs.js";
@@ -25,6 +28,18 @@ export type DockerRuntimeOptions = {
    * Defaults to `scad-gateway`. Set `null` to disable attachment (unit tests).
    */
   gatewayContainerName?: string | null;
+  /**
+   * Egress proxy container attached to each app network (T2.1). Apps get
+   * `HTTP(S)_PROXY=http://{name}:3128`. Defaults to `scad-egress`; `null`
+   * disables (apps then have no way out at all).
+   */
+  egressProxyContainerName?: string | null;
+  /**
+   * Directory the proxy mounts read-only; the driver writes one
+   * `{appId}.json` policy per app (`{appId, subnet, allow}`). Defaults to
+   * `$SCAD_EGRESS_POLICY_DIR` or `~/.scad/egress-policy`.
+   */
+  egressPolicyDir?: string;
   /** Bytes per `diskGb` unit. Default 1 GiB; tests shrink it to keep fills small. */
   bytesPerDiskGb?: number;
   /** Only log lines newer than this are served (AGENTS §14: 7-day log retention). */
@@ -44,6 +59,12 @@ export const APP_LOG_CONFIG = {
 } as const;
 
 const DEFAULT_GATEWAY_CONTAINER = "scad-gateway";
+const DEFAULT_EGRESS_CONTAINER = "scad-egress";
+const EGRESS_PROXY_PORT = 3128;
+
+export function defaultEgressPolicyDir(): string {
+  return process.env["SCAD_EGRESS_POLICY_DIR"] ?? join(homedir(), ".scad", "egress-policy");
+}
 const GIB = 1024 * 1024 * 1024;
 /** Trusted helper image used to prepare and measure `/data` volumes. */
 export const VOLUME_HELPER_IMAGE = "busybox:1.36";
@@ -69,6 +90,8 @@ export class VolumeQuotaExceededError extends Error {
 export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #docker: Docker;
   readonly #gatewayContainerName: string | null;
+  readonly #egressContainerName: string | null;
+  readonly #egressPolicyDir: string;
   readonly #bytesPerDiskGb: number;
   readonly #logRetentionMs: number;
 
@@ -80,6 +103,11 @@ export class DockerRuntimeProvider implements RuntimeProvider {
       options.gatewayContainerName === undefined
         ? DEFAULT_GATEWAY_CONTAINER
         : options.gatewayContainerName;
+    this.#egressContainerName =
+      options.egressProxyContainerName === undefined
+        ? DEFAULT_EGRESS_CONTAINER
+        : options.egressProxyContainerName;
+    this.#egressPolicyDir = options.egressPolicyDir ?? defaultEgressPolicyDir();
   }
 
   async ensureApp(appId: string, diskGb: number): Promise<void> {
@@ -113,7 +141,8 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     const createOpts: Docker.ContainerCreateOptions = {
       name,
       Image: spec.imageRef,
-      Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
+      // Platform proxy vars come last so an app's env can't redirect them.
+      Env: Object.entries({ ...spec.env, ...this.#proxyEnv() }).map(([k, v]) => `${k}=${v}`),
       Labels: labels,
       ExposedPorts: { [`${spec.port}/tcp`]: {} },
       // manifest.start as argv — never `/bin/sh -c` (no shell interpolation).
@@ -149,8 +178,10 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         throw err;
       }
     }
+    await this.#writeEgressPolicy(spec.appId, spec.egressAllow);
     await container.start();
     await this.#connectGateway(spec.appId);
+    await this.#connectEgressProxy(spec.appId);
     return { appId: spec.appId, providerId: container.id };
   }
 
@@ -241,6 +272,8 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     assertAppId(appId);
     await this.#removeExistingContainer(appId);
     await this.#disconnectGateway(appId);
+    await this.#disconnectContainer(appId, this.#egressContainerName);
+    await rm(this.#policyPath(appId), { force: true });
 
     const net = networkName(appId);
     try {
@@ -435,8 +468,46 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
   }
 
+  #proxyEnv(): Record<string, string> {
+    if (!this.#egressContainerName) return {};
+    const url = `http://${this.#egressContainerName}:${EGRESS_PROXY_PORT}`;
+    return {
+      HTTP_PROXY: url,
+      HTTPS_PROXY: url,
+      http_proxy: url,
+      https_proxy: url,
+      NO_PROXY: "localhost,127.0.0.1",
+      no_proxy: "localhost,127.0.0.1",
+    };
+  }
+
+  #policyPath(appId: string): string {
+    assertAppId(appId); // validated uuid: no path traversal (INV11)
+    return join(this.#egressPolicyDir, `${appId}.json`);
+  }
+
+  /** Tell the egress proxy which subnet is this app and where it may go (T2.1). */
+  async #writeEgressPolicy(appId: string, allow: string[]): Promise<void> {
+    if (!this.#egressContainerName) return;
+    const info = await this.#docker.getNetwork(networkName(appId)).inspect();
+    const subnet = (info.IPAM?.Config ?? []).map((c) => c.Subnet).find((v): v is string => Boolean(v));
+    if (!subnet) throw new Error(`network ${networkName(appId)} has no subnet`);
+    await mkdir(this.#egressPolicyDir, { recursive: true });
+    const file = this.#policyPath(appId);
+    const tmp = `${file}.${process.pid}.tmp`;
+    await writeFile(tmp, `${JSON.stringify({ appId, subnet, allow })}\n`, { mode: 0o644 });
+    await rename(tmp, file);
+  }
+
+  async #connectEgressProxy(appId: string): Promise<void> {
+    await this.#connectContainer(appId, this.#egressContainerName);
+  }
+
   async #connectGateway(appId: string): Promise<void> {
-    const gateway = this.#gatewayContainerName;
+    await this.#connectContainer(appId, this.#gatewayContainerName);
+  }
+
+  async #connectContainer(appId: string, gateway: string | null): Promise<void> {
     if (!gateway) return;
     const net = networkName(appId);
     try {
@@ -459,7 +530,10 @@ export class DockerRuntimeProvider implements RuntimeProvider {
   }
 
   async #disconnectGateway(appId: string): Promise<void> {
-    const gateway = this.#gatewayContainerName;
+    await this.#disconnectContainer(appId, this.#gatewayContainerName);
+  }
+
+  async #disconnectContainer(appId: string, gateway: string | null): Promise<void> {
     if (!gateway) return;
     const net = networkName(appId);
     try {
