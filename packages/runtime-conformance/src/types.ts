@@ -54,6 +54,8 @@ export interface RuntimeCapabilities {
   listApps?(): Promise<{ appId: string; resources: string[] }[]>;
   /** Stop the app if its `/data` volume is over its size limit (measured quota, T1.3). */
   enforceVolumeQuota?(m: MachineRef): Promise<"ok" | "stopped">;
+  /** Bytes used by the app's `/data` volume and its limit (usage page, T2.7). */
+  volumeUsage?(appId: string): Promise<{ usedBytes: number; limitBytes: number }>;
 }
 
 /** A runtime driver plus whatever optional capabilities it has. */

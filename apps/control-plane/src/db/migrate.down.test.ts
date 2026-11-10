@@ -31,7 +31,8 @@ describe("reversible migrations", () => {
     expect(upMigrations().length).toBeGreaterThanOrEqual(3);
     for (const name of upMigrations()) {
       const sqlText = readFileSync(join(downDir, `${name}.down.sql`), "utf8");
-      expect(sqlText).toMatch(/DROP TABLE/i);
+      // A down script undoes its up script: tables it created, or columns it added.
+      expect(sqlText, `${name}.down.sql`).toMatch(/DROP (TABLE|COLUMN)/i);
     }
   });
 });

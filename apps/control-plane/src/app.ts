@@ -10,6 +10,7 @@ import { errorHandler } from "./errors.js";
 import { MachineController } from "./machines/controller.js";
 import { authPlugin } from "./plugins/auth.js";
 import { adminRoutes } from "./routes/admin.js";
+import { adminUsageRoutes } from "./routes/admin-usage.js";
 import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
 import { envRoutes } from "./routes/env.js";
@@ -106,6 +107,7 @@ export async function buildApp(opts: BuildAppOptions) {
 
   await app.register(shareRoutes, { db: opts.db });
   await app.register(adminRoutes, { db: opts.db, operatorEmails, ...(machines ? { machines } : {}) });
+  await app.register(adminUsageRoutes, { db: opts.db, operatorEmails, ...(opts.now ? { now: opts.now } : {}) });
   await app.register(envRoutes, {
     db: opts.db,
     internalToken,

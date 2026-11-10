@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { formatAppUrl, isUuid } from "@scad/shared";
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, machines, usageDaily, usageViewers, users } from "../db/schema.js";
+import { accruedRunningSeconds } from "../machines/running-time.js";
 import type { MachineController } from "../machines/controller.js";
 import { EXPIRY_GRACE_MS, EXPIRY_WARNING_MS, utcDay } from "./policy.js";
 import { deleteApp } from "./delete.js";
@@ -181,7 +182,10 @@ export class LifecycleJobs {
       .where(and(inArray(machines.state, ["running", "stopped"]), inArray(apps.status, ["running", "stopped"])));
     const missing = tracked.map((m) => m.appId).filter((id) => !runtimeIds.has(id)).sort();
     if (missing.length > 0) {
-      await this.#db.update(machines).set({ state: "missing" }).where(inArray(machines.appId, missing));
+      await this.#db
+        .update(machines)
+        .set({ runningSeconds: accruedRunningSeconds(this.#now()), state: "missing" })
+        .where(inArray(machines.appId, missing));
     }
     return { orphans, missing };
   }

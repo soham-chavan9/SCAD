@@ -9,7 +9,9 @@ import {
   adminInvites,
   adminSuspendApp,
   adminSuspendUser,
+  adminUsage,
   adminUsers,
+  formatUsage,
 } from "./admin.js";
 import { saveConfig } from "./config.js";
 
@@ -109,5 +111,36 @@ describe("scad admin (T2.6)", () => {
     await expect(adminUsers({ configPath, fetchImpl })).rejects.toMatchObject({
       envelope: { code: "FORBIDDEN" },
     });
+  });
+
+  it("usage (T2.7) asks for the window and prints one line per app plus totals", async () => {
+    const report = {
+      window_days: 7,
+      since: "2026-11-04",
+      generated_at: "2026-11-10T12:00:00.000Z",
+      apps: [
+        {
+          id: "a1",
+          owner: "olive",
+          slug: "board",
+          status: "running",
+          pinned: true,
+          requests: 42,
+          unique_viewers: 3,
+          last_viewed_at: "2026-11-10T11:00:00.000Z",
+          running_hours: 5.5,
+          volume_bytes: 12 * 1024 * 1024,
+          volume_measured_at: "2026-11-10T11:55:00.000Z",
+          expires_at: null,
+        },
+      ],
+      totals: { apps: 1, running: 1, requests: 42, running_hours: 5.5, volume_bytes: 12 * 1024 * 1024 },
+    };
+    const { configPath, fetchImpl } = await setup({ "GET /v1/admin/usage?days=7": { body: report } });
+    const out = await adminUsage({ days: 7, configPath, fetchImpl });
+    const text = formatUsage(out);
+    expect(text).toMatch(/^APP\s+STATUS\s+REQUESTS\s+VIEWERS\s+LAST VIEWED\s+RUN HOURS\s+VOLUME/);
+    expect(text).toMatch(/olive\/board\s+running \(pinned\)\s+42\s+3\s+2026-11-10 11:00\s+5\.50\s+12\.0 MB/);
+    expect(text).toContain("1 apps (1 running), 42 requests in 7 days, 5.50 running hours, 12.0 MB on volumes");
   });
 });

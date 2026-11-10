@@ -174,8 +174,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: suspending an app or user blocks the gateway within 5 seconds (INV9); every publish, share, unshare, suspend, delete writes an `audit_events` row; non-operators get 403.
   - Tests: `apps/control-plane/src/admin.integration.test.ts`, `apps/gateway/src/operator-controls.integration.test.ts` (INV9 with a cached resolver, open WebSocket closed, invite allowlist), `packages/cli/src/admin.test.ts`. Docs: `docs/operator.md`, `docs/sign-in.md`. The gateway ACL now reads app and owner status fresh per request (the 30 s resolve cache no longer delays a suspend); open WebSockets re-check every 2 s. Includes the invite allowlist (human decision, Nov 8): `invites` table (migration 0007), `scad admin invite add|rm|ls`. Adds `/v1/admin` users, unsuspend, invites, and audit routes to §8.
 
-- [ ] **T2.7 Usage and cost visibility**
+- [x] **T2.7 Usage and cost visibility**
   - Depends: T2.5. Done when: `scad admin usage` and a minimal operator page show per-app requests, unique viewers, last viewed, running hours, volume size.
+  - Tests: `apps/control-plane/src/usage.integration.test.ts` (fake clock: touches, window, running hours across stop/wake, volume from the quota sweep, page CSP), `packages/cli/src/admin.test.ts`. Docs: `docs/usage.md`. `GET /v1/admin/usage` and the static operator page `GET /admin` on the control plane (token pasted into the page, kept in `sessionStorage`). Migration 0008 adds `machines.running_seconds`, `volume_bytes`, `volume_measured_at`; drivers may offer the optional `volumeUsage` capability. Page checked by hand in a browser with seeded data.
 
 - [ ] **T2.8 Adversarial test suite**
   - Depends: T2.1, T2.2. Files: `tests/adversarial` with hostile sample apps.

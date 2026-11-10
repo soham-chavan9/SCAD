@@ -8,6 +8,7 @@ import { ApiError, validationFailed } from "../errors.js";
 import { lockApp, type Tx } from "../lifecycle/app-lock.js";
 import { CANCELLED_BY_DELETE, CANCELLED_BY_SUSPEND } from "../lifecycle/delete.js";
 import type { MachineController } from "../machines/controller.js";
+import { accruedRunningSeconds } from "../machines/running-time.js";
 import {
   appendBuildLog,
   readBuildLogTail,
@@ -184,6 +185,7 @@ async function applyCompletion(
         target: machines.appId,
         set: {
           providerId: data.providerId,
+          runningSeconds: accruedRunningSeconds(new Date()),
           state: "running",
           lastStartedAt: new Date(),
         },

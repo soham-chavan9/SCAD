@@ -14,6 +14,7 @@ Canonical agent brief and build plan live at the repo root:
 - [`logs.md`](logs.md) — `scad logs -f`, the SSE logs route, and 7-day retention
 - [`idle-wake.md`](idle-wake.md) — idle stop after 10 minutes, wake on request, the "Starting…" page
 - [`operator.md`](operator.md) — `scad admin`: suspend apps and users, sign-up invites, audit log
+- [`usage.md`](usage.md) — `scad admin usage` and the operator page (`/admin`)
 - [`egress.md`](egress.md) — outbound network through the egress proxy and `EGRESS_ALLOWED_DOMAINS`
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
