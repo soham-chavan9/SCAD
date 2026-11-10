@@ -295,7 +295,19 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
   }
 
+  /**
+   * Re-attach the gateway and egress proxy to the app network (idempotent).
+   * They are attached at deploy; a recreated gateway or proxy container
+   * (e.g. `docker compose up -d gateway`) starts on no app network at all.
+   */
+  async reconnect(m: MachineRef): Promise<void> {
+    assertAppId(m.appId);
+    await this.#connectGateway(m.appId);
+    await this.#connectEgressProxy(m.appId);
+  }
+
   async start(m: MachineRef): Promise<void> {
+    await this.reconnect(m);
     const container = this.#docker.getContainer(m.providerId);
     const usage = await this.volumeUsage(m.appId);
     if (usage.usedBytes > usage.limitBytes) {
