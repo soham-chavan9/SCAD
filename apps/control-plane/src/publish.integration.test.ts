@@ -166,6 +166,48 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     300_000,
   );
 
+  // T2.4: no Dockerfile; SCAD's built-in templates build each layout offline.
+  for (const layout of [
+    { label: "a directory with only package.json", name: "pkg-only", dir: "pkg-only" },
+    { label: "examples/hello-python (requirements.txt)", name: "hello-python", dir: "examples/hello-python" },
+    { label: "examples/hello-static (index.html)", name: "hello-static", dir: "examples/hello-static" },
+  ]) {
+    it(
+      `publishes ${layout.label} without a Dockerfile (T2.4)`,
+      async () => {
+        const dir =
+          layout.dir === "pkg-only"
+            ? await writeFixture(dataDir, {
+                "package.json": JSON.stringify({
+                  name: "pkg-only",
+                  scripts: {
+                    start:
+                      "node -e \"require('http').createServer((q,r)=>r.end('pkg-only')).listen(process.env.PORT)\"",
+                  },
+                }),
+              })
+            : join(process.cwd(), layout.dir);
+        const result = await publishDir({ dir, name: layout.name, configPath, pollMs: 300 });
+        appIds.push(result.appId);
+        const [release] = await dbBundle.db
+          .select()
+          .from(releases)
+          .where(eq(releases.id, result.releaseId))
+          .limit(1);
+        expect(release?.status).toBe("ready");
+        const [machine] = await dbBundle.db
+          .select()
+          .from(machines)
+          .where(eq(machines.appId, result.appId))
+          .limit(1);
+        expect(
+          await runtime.status({ appId: result.appId, providerId: machine!.providerId }),
+        ).toBe("running");
+      },
+      300_000,
+    );
+  }
+
   it(
     "scad.json drives port, start command, env, and resources (T1.5)",
     async () => {

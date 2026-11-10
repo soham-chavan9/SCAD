@@ -1,0 +1,2 @@
+# Standard library only. Builds run offline (--network=none), so to use packages
+# put their wheels in wheels/ (pip download -r requirements.txt -d wheels).

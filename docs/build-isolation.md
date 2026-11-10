@@ -30,6 +30,9 @@ Ways to ship dependencies:
    allowed, so a stage can `COPY --from=<some published image that already
    has your deps>`. The build still cannot download anything itself.
 
+No Dockerfile at all? The built-in Node, Python, and static templates work the
+same way offline; see [`autodetect.md`](autodetect.md).
+
 A build that tries the network fails in the `RUN` step (DNS lookups fail,
 connections get "Network unreachable"). The `BUILD_FAILED` envelope carries
 the last 50 log lines in `details.log_tail`.
