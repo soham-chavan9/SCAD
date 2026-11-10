@@ -20,11 +20,13 @@ export {
 
 export {
   applyManifestDefaults,
+  describeManifestIssues,
   MANIFEST_CAPS,
   MANIFEST_DEFAULTS,
   manifestSchema,
   parseManifest,
   type ManifestInput,
+  type ManifestIssue,
   type ResolvedManifest,
 } from "./manifest.js";
 
@@ -41,15 +43,25 @@ export {
 
 export {
   generateEd25519KeyPair,
+  identityKeyId,
   IDENTITY_JWT_TTL_SECONDS,
   importPrivateKeyPem,
   importPublicKeyPem,
   normalizePemFromEnv,
   signIdentityJwt,
   verifyIdentityJwt,
+  verifyIdentityJwtWithJwks,
   type IdentityClaims,
   type SignIdentityOptions,
   type VerifiedIdentity,
 } from "./jwt.js";
 
 export { isUuid, newId, uuidSchema } from "./id.js";
+
+export {
+  DEFAULT_CPU_SHARES,
+  DEFAULT_PIDS,
+  deploySpecFromManifest,
+  startToArgv,
+  type DeploySpecShape,
+} from "./deploy-spec.js";

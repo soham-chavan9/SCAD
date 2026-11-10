@@ -21,6 +21,18 @@ export function appReadyPage(slug: string, ownerHandle: string): string {
   );
 }
 
+/** Self-retrying page shown while a stopped app starts (§9 step 6). Reloads the same URL. */
+export function wakingPage(failed = false): string {
+  const message = failed
+    ? "The app is taking longer than usual to start. This page will keep trying."
+    : "Starting the app. This page reloads by itself in a moment.";
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta http-equiv="refresh" content="2"/><title>Starting…</title></head>
+<body><h1>Starting…</h1><p>${message}</p></body>
+</html>`;
+}
+
 export function badCallbackPage(message: string): string {
   return htmlPage("Sign-in failed", `<h1>Sign-in failed</h1><p>${escapeHtml(message)}</p>`);
 }
@@ -31,4 +43,47 @@ function escapeHtml(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+export function loginPage(opts: { returnTo: string; csrf: string }): string {
+  const rt = escapeHtml(opts.returnTo);
+  return htmlPage(
+    "Sign in",
+    `<h1>Sign in</h1>
+<p><a href="/login/github?return_to=${escapeHtml(encodeURIComponent(opts.returnTo))}">Sign in with GitHub</a></p>
+<form method="post" action="/login/email">
+<input type="hidden" name="csrf" value="${escapeHtml(opts.csrf)}"/>
+<input type="hidden" name="return_to" value="${rt}"/>
+<label>Email <input type="email" name="email" required autocomplete="email"/></label>
+<button type="submit">Email me a sign-in link</button>
+</form>`,
+  );
+}
+
+/** Identical for known and unknown emails (no account enumeration). */
+export function checkEmailPage(): string {
+  return htmlPage(
+    "Check your email",
+    "<h1>Check your email</h1><p>If that address can sign in, a link is on its way. It works once and expires in 10 minutes.</p>",
+  );
+}
+
+export function rateLimitedPage(): string {
+  return htmlPage(
+    "Too many requests",
+    "<h1>Too many requests</h1><p>Wait a few minutes, then ask for a new link.</p>",
+  );
+}
+
+/** Opening the link only shows this page; the POST consumes the token (mail scanners can't burn it). */
+export function confirmMagicLinkPage(opts: { token: string; csrf: string }): string {
+  return htmlPage(
+    "Continue signing in",
+    `<h1>Continue signing in</h1>
+<form method="post" action="/login/email/verify">
+<input type="hidden" name="token" value="${escapeHtml(opts.token)}"/>
+<input type="hidden" name="csrf" value="${escapeHtml(opts.csrf)}"/>
+<button type="submit">Continue</button>
+</form>`,
+  );
 }

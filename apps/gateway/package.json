@@ -25,12 +25,15 @@
     "fastify-plugin": "5.1.0",
     "http-proxy": "1.18.1",
     "jose": "6.2.13",
+    "nodemailer": "10.2.1",
     "openid-client": "6.8.8",
     "postgres": "3.4.9",
     "tsx": "4.20.6",
-    "ws": "8.18.3"
+    "ws": "8.18.3",
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@scad/runtime-conformance": "workspace:*",
     "@types/http-proxy": "1.17.16",
     "@types/ws": "8.18.1"
   }

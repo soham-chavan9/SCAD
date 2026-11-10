@@ -12,5 +12,15 @@
   "scripts": {
     "typecheck": "tsc -b",
     "test": "vitest run --root ../.. tests/e2e"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@scad/api-client": "workspace:*",
+    "@scad/builder": "workspace:*",
+    "@scad/cli": "workspace:*",
+    "@scad/control-plane": "workspace:*",
+    "@scad/mcp-server": "workspace:*",
+    "@scad/runtime-docker": "workspace:*",
+    "drizzle-orm": "0.44.7"
   }
 }

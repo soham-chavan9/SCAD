@@ -3,17 +3,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
+import type { RuntimeProvider } from "@scad/runtime-conformance";
 import type { Db } from "./db/client.js";
 import { DeviceStore } from "./device-store.js";
 import { errorHandler } from "./errors.js";
+import { MachineController } from "./machines/controller.js";
 import { authPlugin } from "./plugins/auth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
+import { envRoutes } from "./routes/env.js";
+import { deleteAppRoutes } from "./routes/delete-app.js";
+import { logsRoutes } from "./routes/logs.js";
 import { healthRoutes } from "./routes/health.js";
 import { internalBuildsRoutes } from "./routes/internal-builds.js";
 import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
+import { shareRoutes } from "./routes/share.js";
+import type { MasterKeyRing } from "./secrets/crypto.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
 export type BuildAppOptions = {
@@ -29,6 +36,16 @@ export type BuildAppOptions = {
   internalSecret?: string;
   devices?: DeviceStore;
   paths?: DataPaths;
+  /** Runtime used to wake and idle-stop apps (T1.4). Wake routes 503 without it. */
+  runtime?: RuntimeProvider;
+  /** Pre-built controller (server.ts shares it with the idle stopper). */
+  machines?: MachineController;
+  /** Clock override (tests). */
+  now?: () => Date;
+  /** Live-app cap (T2.3); defaults to AGENTS §14's 10. */
+  maxLiveApps?: number;
+  /** MASTER_KEY (+ previous keys during rotation) for env var encryption (T1.6). */
+  masterKeys?: MasterKeyRing;
 };
 
 export async function buildApp(opts: BuildAppOptions) {
@@ -76,12 +93,37 @@ export async function buildApp(opts: BuildAppOptions) {
     publicBaseUrl,
   });
   await app.register(appsRoutes, { db: opts.db, baseDomain });
-  await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
+  const machines =
+    opts.machines ??
+    (opts.runtime
+      ? new MachineController({
+          db: opts.db,
+          runtime: opts.runtime,
+          ...(opts.now ? { now: opts.now } : {}),
+        })
+      : undefined);
+
+  await app.register(shareRoutes, { db: opts.db });
+  await app.register(envRoutes, {
+    db: opts.db,
+    internalToken,
+    ...(opts.masterKeys ? { masterKeys: opts.masterKeys } : {}),
+    ...(machines ? { machines } : {}),
+  });
+  await app.register(logsRoutes, { db: opts.db });
+  await app.register(deleteAppRoutes, { db: opts.db, ...(machines ? { machines } : {}) });
+  await app.register(publishRoutes, {
+    db: opts.db,
+    paths,
+    baseDomain,
+    ...(opts.maxLiveApps !== undefined ? { maxLiveApps: opts.maxLiveApps } : {}),
+  });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {
     db: opts.db,
     paths,
     internalToken,
+    ...(machines ? { machines } : {}),
   });
 
   if (opts.internalSecret) {
@@ -89,6 +131,7 @@ export async function buildApp(opts: BuildAppOptions) {
       db: opts.db,
       internalSecret: opts.internalSecret,
       baseDomain,
+      ...(machines ? { machines } : {}),
     });
   }
 

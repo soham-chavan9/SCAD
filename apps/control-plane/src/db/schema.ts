@@ -1,10 +1,16 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
+  bigserial,
   boolean,
+  customType,
+  date,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -51,6 +57,8 @@ export const apps = pgTable(
     lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     pinned: boolean("pinned").notNull().default(false),
+    /** When the 7-day expiry warning went out for the current `expires_at` (T2.5). */
+    expiryWarnedAt: timestamp("expiry_warned_at", { withTimezone: true }),
   },
   (t) => [unique("apps_owner_slug").on(t.ownerId, t.slug)],
 );
@@ -135,3 +143,119 @@ export const oauthStates = pgTable("oauth_states", {
   returnTo: text("return_to").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+/**
+ * Email magic links (T1.1). Single-use, 10-minute TTL, stored hashed (INV5).
+ * Bound to the app host the user was trying to reach (`app_host`).
+ */
+export const magicLinks = pgTable("magic_links", {
+  tokenHash: text("token_hash").primaryKey(),
+  email: text("email").notNull(),
+  appHost: text("app_host").notNull(),
+  returnTo: text("return_to").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+
+/**
+ * Per-app allowlist (T1.2). Keyed by lowercase email so an app can be shared
+ * before the person has an account; their first sign-in with that email links.
+ */
+export const appAccess = pgTable(
+  "app_access",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id),
+    email: text("email").notNull(),
+    grantedBy: uuid("granted_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.email] })],
+);
+
+/** Postgres bytea as a Node Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * Per-app env vars (T1.6). Every value is envelope-encrypted with MASTER_KEY
+ * (see src/secrets/crypto.ts); `is_secret` values are write-only via the API.
+ */
+export const envVars = pgTable(
+  "env_vars",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id),
+    key: text("key").notNull(),
+    valueCiphertext: bytea("value_ciphertext").notNull(),
+    isSecret: boolean("is_secret").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.key] })],
+);
+
+/**
+ * Runtime stdout/stderr lines collected from app containers (T1.7b). The
+ * control plane owns this store so retention is a real delete: a daily job
+ * removes rows older than 7 days (AGENTS §14). Secret env values are redacted
+ * before insert (INV12). Rows go away with their app.
+ */
+export const runtimeLogs = pgTable(
+  "runtime_logs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    line: text("line").notNull(),
+  },
+  (t) => [
+    index("runtime_logs_app_id_id_idx").on(t.appId, t.id),
+    index("runtime_logs_app_provider_idx").on(t.appId, t.providerId),
+    index("runtime_logs_at_idx").on(t.at),
+  ],
+);
+
+/**
+ * Raw per-viewer counters (T2.5). Each gateway touch adds one request for
+ * that viewer and day (UTC); the hourly roll-up folds these into usage_daily.
+ */
+export const usageViewers = pgTable(
+  "usage_viewers",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requests: integer("requests").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.day, t.userId] })],
+);
+
+/** AGENTS §7 usage_daily: per app and UTC day. Written by the hourly roll-up (T2.5). */
+export const usageDaily = pgTable(
+  "usage_daily",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    requests: integer("requests").notNull().default(0),
+    uniqueViewers: integer("unique_viewers").notNull().default(0),
+    egressBytes: bigint("egress_bytes", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.day] })],
+);

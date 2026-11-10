@@ -17,6 +17,7 @@ import { SESSION_COOKIE, sessionCookieOptions } from "./cookies.js";
 import { appHost, authHost } from "./host.js";
 import { generateEphemeralIdentityKeys } from "./identity/keys.js";
 import { createHttpAppResolver } from "./resolve.js";
+import { MemoryMailer } from "./mail/mailer.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
 const BASE_DOMAIN = "localhost:8080";
@@ -45,7 +46,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
 
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+        app_access, magic_links, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
 
@@ -143,6 +144,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
       identity,
       resolver,
       keys,
+      mailer: new MemoryMailer(),
       allowDevLogin: true,
     });
     await gateway.ready();
@@ -169,7 +171,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
     const returnTo = `http://${targetHost}/`;
     const loginRes = await gateway.inject({
       method: "GET",
-      url: `/login?return_to=${encodeURIComponent(returnTo)}`,
+      url: `/login/github?return_to=${encodeURIComponent(returnTo)}`,
       headers: { host: auth },
     });
     expect(loginRes.statusCode).toBe(302);
@@ -249,6 +251,8 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
       headers: { host: auth },
     });
     expect(jwksRes.statusCode).toBe(200);
+    // T1.9: apps may cache the JWKS for 5 minutes; rotation keeps old keys listed longer than that.
+    expect(jwksRes.headers["cache-control"]).toBe("public, max-age=300");
     const jwks = createLocalJWKSet(jwksRes.json());
     const { payload } = await jwtVerify(body.identity, jwks, {
       issuer: `http://${auth}`,
@@ -399,7 +403,7 @@ describe.runIf(Boolean(databaseUrl))("gateway v0 auth + proxy (Postgres)", () =>
     const code = identity.issueCodeFor(profile);
     const loginRes = await gateway.inject({
       method: "GET",
-      url: `/login?return_to=${encodeURIComponent(`http://${ownerHost}/`)}`,
+      url: `/login/github?return_to=${encodeURIComponent(`http://${ownerHost}/`)}`,
       headers: { host: auth },
     });
     expect(loginRes.statusCode).toBe(302);

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -15,12 +15,22 @@ function databaseName(url: string): string {
   }
 }
 
-const downDir = join(dirname(fileURLToPath(import.meta.url)), "../../drizzle/down");
+const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), "../../drizzle");
+const downDir = join(drizzleDir, "down");
+
+/** Up migrations in order, e.g. ["0000_init", "0001_sessions_login_codes", ...]. */
+function upMigrations(): string[] {
+  return readdirSync(drizzleDir)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+    .sort()
+    .map((f) => f.replace(/\.sql$/, ""));
+}
 
 describe("reversible migrations", () => {
   it("ships a down script for each up migration", () => {
-    for (const name of ["0000_init.down.sql", "0001_sessions_login_codes.down.sql"]) {
-      const sqlText = readFileSync(join(downDir, name), "utf8");
+    expect(upMigrations().length).toBeGreaterThanOrEqual(3);
+    for (const name of upMigrations()) {
+      const sqlText = readFileSync(join(downDir, `${name}.down.sql`), "utf8");
       expect(sqlText).toMatch(/DROP TABLE/i);
     }
   });
@@ -42,11 +52,12 @@ describe.runIf(Boolean(databaseUrl) && databaseName(databaseUrl ?? "").endsWith(
       `;
       expect(before[0]?.users).toBe("users");
 
-      const down1 = readFileSync(join(downDir, "0001_sessions_login_codes.down.sql"), "utf8");
-      const down0 = readFileSync(join(downDir, "0000_init.down.sql"), "utf8");
+      const downs = upMigrations()
+        .reverse()
+        .map((name) => readFileSync(join(downDir, `${name}.down.sql`), "utf8"));
 
       await sql.begin(async (tx) => {
-        for (const script of [down1, down0]) {
+        for (const script of downs) {
           for (const stmt of script
             .split(";")
             .map((part) => part.trim())

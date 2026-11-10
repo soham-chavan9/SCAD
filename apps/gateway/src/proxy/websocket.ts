@@ -2,6 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import httpProxy from "http-proxy";
 import type { Db } from "@scad/control-plane";
+import { canViewApp } from "../auth/access.js";
 import { loadSessionUser } from "../auth/sessions.js";
 import { SESSION_COOKIE } from "../cookies.js";
 import { authHost } from "../host.js";
@@ -9,12 +10,15 @@ import { buildUpstreamHeaders } from "../identity/headers.js";
 import type { IdentityKeyMaterial } from "../identity/keys.js";
 import type { AppResolver } from "../resolve.js";
 import { upstreamTarget } from "../resolve.js";
+import { WAKE_BUDGET_MS, type WakeCoordinator } from "../wake.js";
 
 export type WsProxyOpts = {
   db: Db["db"];
   baseDomain: string;
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
+  wake?: WakeCoordinator;
+  wakeBudgetMs?: number;
 };
 
 /** Platform paths must never be upgraded into the app container. */
@@ -73,7 +77,8 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
         const user = sessionId
           ? await loadSessionUser(opts.db, { sessionId, appHost: host })
           : null;
-        if (!user || user.id !== resolved.ownerId || user.status !== "active") {
+        // Same ACL as HTTP (owner, allowlist, or instance visibility).
+        if (!user || !(await canViewApp(opts.db, resolved, user))) {
           socket.destroy();
           return;
         }
@@ -89,6 +94,19 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
         });
 
         const target = upstreamTarget(resolved);
+        if (opts.wake) {
+          opts.wake.touch(resolved.appId, user.id);
+          if (opts.wake.needsWake(resolved)) {
+            const outcome = await opts.wake.hold(
+              opts.wake.wake(resolved.appId, target),
+              opts.wakeBudgetMs ?? WAKE_BUDGET_MS,
+            );
+            if (outcome !== "ready") {
+              socket.destroy();
+              return;
+            }
+          }
+        }
         proxy.ws(req, socket, head, {
           target: `http://${target.host}:${target.port}`,
           headers,

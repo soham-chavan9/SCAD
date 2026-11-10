@@ -15,6 +15,41 @@
       "when": 1792743044187,
       "tag": "0001_sessions_login_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794000533161,
+      "tag": "0002_magic_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794000799340,
+      "tag": "0003_app_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794065014659,
+      "tag": "0004_env_vars",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794159362347,
+      "tag": "0005_runtime_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794256023545,
+      "tag": "0006_lifecycle_usage",
+      "breakpoints": true
     }
   ]
 }

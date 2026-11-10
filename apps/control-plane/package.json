@@ -15,15 +15,20 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "start": "tsx src/server.ts",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "rotate-master-key": "tsx src/secrets/rotate.ts"
   },
   "dependencies": {
     "@fastify/multipart": "9.0.3",
+    "@scad/runtime-conformance": "workspace:*",
+    "@scad/runtime-factory": "workspace:*",
     "@scad/shared": "workspace:*",
     "drizzle-orm": "0.44.7",
     "fastify": "5.12.7",
     "fastify-plugin": "5.1.0",
+    "nodemailer": "10.2.1",
     "postgres": "3.4.9",
+    "tar": "7.5.22",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -31,6 +36,8 @@
     "@scad/builder": "workspace:*",
     "@scad/cli": "workspace:*",
     "@scad/runtime-docker": "workspace:*",
+    "@types/dockerode": "4.0.2",
+    "dockerode": "5.0.1",
     "drizzle-kit": "0.31.5",
     "tsx": "4.20.6"
   }

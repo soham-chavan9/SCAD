@@ -200,6 +200,9 @@ describe("security invariants (real Docker)", () => {
     expect(hc.Memory).toBe(limits.memoryMb * 1024 * 1024);
     expect(hc.CpuShares).toBe(limits.cpuShares);
     expect(hc.PidsLimit).toBe(limits.pids);
+    expect(hc.MemorySwap, "no swap beyond the memory limit").toBe(limits.memoryMb * 1024 * 1024);
+    expect(hc.CapAdd ?? []).toEqual([]);
+    expect(hc.Privileged).toBe(false);
 
     const ports = info.NetworkSettings.Ports ?? {};
     for (const bindings of Object.values(ports)) {

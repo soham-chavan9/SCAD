@@ -5,6 +5,9 @@ import { errorEnvelopeSchema } from "@scad/shared";
 import type { Db } from "../db/client.js";
 import { apps, machines, releases } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
+import { lockApp, type Tx } from "../lifecycle/app-lock.js";
+import { CANCELLED_BY_DELETE } from "../lifecycle/delete.js";
+import type { MachineController } from "../machines/controller.js";
 import {
   appendBuildLog,
   readBuildLogTail,
@@ -15,9 +18,11 @@ export type InternalBuildsOpts = {
   db: Db["db"];
   paths: DataPaths;
   internalToken: string;
+  /** Tears down a deploy that finished after its app was deleted. */
+  machines?: MachineController;
 };
 
-function assertInternal(request: { headers: Record<string, unknown> }, token: string): void {
+export function assertInternal(request: { headers: Record<string, unknown> }, token: string): void {
   const header = request.headers["x-scad-internal-token"];
   if (typeof header !== "string" || header !== token) {
     throw new ApiError(401, "UNAUTHENTICATED", "Invalid internal token", "Use the builder secret.");
@@ -46,6 +51,14 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
 
         const [appRow] = await opts.db.select().from(apps).where(eq(apps.id, release.appId)).limit(1);
         if (!appRow) continue;
+        if (appRow.status === "deleted") {
+          // Never build for a deleted app (a delete normally cancels these already).
+          await opts.db
+            .update(releases)
+            .set({ status: "failed", error: CANCELLED_BY_DELETE })
+            .where(and(eq(releases.id, release.id), eq(releases.status, "building")));
+          continue;
+        }
 
         claimedReleaseIds.add(release.id);
         return {
@@ -82,91 +95,118 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
     async (request) => {
       assertInternal(request, opts.internalToken);
       const { id } = request.params as { id: string };
-      const body = z
-        .discriminatedUnion("ok", [
-          z.object({
-            ok: z.literal(true),
-            imageRef: z.string().min(1),
-            providerId: z.string().min(1),
-          }),
-          z.object({
-            ok: z.literal(false),
-            error: errorEnvelopeSchema,
-          }),
-        ])
-        .safeParse(request.body);
+      const body = completionBody.safeParse(request.body);
       if (!body.success) {
         throw validationFailed("Invalid completion payload", {
           issues: body.error.issues,
         });
       }
 
-      const [release] = await opts.db.select().from(releases).where(eq(releases.id, id)).limit(1);
-      if (!release) {
+      const [found] = await opts.db.select().from(releases).where(eq(releases.id, id)).limit(1);
+      if (!found) {
         throw new ApiError(404, "NOT_FOUND", "Release not found", "Unknown release id.");
       }
 
       claimedReleaseIds.delete(id);
 
-      if (body.data.ok) {
-        await opts.db
-          .update(releases)
-          .set({
-            status: "ready",
-            imageRef: body.data.imageRef,
-            error: null,
-          })
-          .where(eq(releases.id, id));
-
-        await opts.db.update(apps).set({ status: "running" }).where(eq(apps.id, release.appId));
-
-        await opts.db
-          .insert(machines)
-          .values({
-            appId: release.appId,
-            providerId: body.data.providerId,
-            volumeRef: `scad-data-${release.appId}`,
-            state: "running",
-            lastStartedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: machines.appId,
-            set: {
-              providerId: body.data.providerId,
-              state: "running",
-              lastStartedAt: new Date(),
-            },
-          });
-      } else {
-        const logTail = await readBuildLogTail(opts.paths, id, 50);
-        const error = {
-          ...body.data.error,
-          details: {
-            ...body.data.error.details,
-            log_tail: logTail,
-          },
-        };
-        await opts.db
-          .update(releases)
-          .set({
-            status: "failed",
-            error,
-          })
-          .where(eq(releases.id, id));
-
-        // Leave previous ready release serving: if any ready release exists, app stays running.
-        const ready = await opts.db
-          .select()
-          .from(releases)
-          .where(and(eq(releases.appId, release.appId), eq(releases.status, "ready")))
-          .limit(1);
-        await opts.db
-          .update(apps)
-          .set({ status: ready[0] ? "running" : "stopped" })
-          .where(eq(apps.id, release.appId));
+      // Under the app's lock so a delete can't interleave; re-read both rows.
+      const outcome = await opts.db.transaction(async (tx) => {
+        await lockApp(tx, found.appId);
+        const [release] = await tx.select().from(releases).where(eq(releases.id, id)).limit(1);
+        const [appRow] = await tx.select({ status: apps.status }).from(apps).where(eq(apps.id, found.appId)).limit(1);
+        if (!release || release.status !== "building" || !appRow || appRow.status === "deleted") {
+          // Cancelled (the app was deleted mid-build): discard the result, and
+          // if the builder already deployed, remove what it created.
+          return { discarded: true, teardown: body.data.ok && appRow?.status === "deleted" };
+        }
+        await applyCompletion(tx, opts.paths, release, body.data);
+        return { discarded: false, teardown: false };
+      });
+      if (outcome.teardown && opts.machines) {
+        await opts.machines.removeApp(found.appId);
       }
-
-      return { ok: true };
+      return outcome.discarded ? { ok: true, discarded: true } : { ok: true };
     },
   );
 };
+
+/** Builder → control plane: how a claimed release ended. */
+const completionBody = z
+  .discriminatedUnion("ok", [
+    z.object({
+      ok: z.literal(true),
+      imageRef: z.string().min(1),
+      providerId: z.string().min(1),
+    }),
+    z.object({
+      ok: z.literal(false),
+      error: errorEnvelopeSchema,
+    }),
+  ]);
+type Completion = z.infer<typeof completionBody>;
+
+/** Record a finished build that is still wanted (its app exists, its release is building). */
+async function applyCompletion(
+  tx: Tx,
+  paths: DataPaths,
+  release: typeof releases.$inferSelect,
+  data: Completion,
+): Promise<void> {
+  if (data.ok) {
+    await tx
+      .update(releases)
+      .set({
+        status: "ready",
+        imageRef: data.imageRef,
+        error: null,
+      })
+      .where(eq(releases.id, release.id));
+
+    await tx.update(apps).set({ status: "running" }).where(eq(apps.id, release.appId));
+
+    await tx
+      .insert(machines)
+      .values({
+        appId: release.appId,
+        providerId: data.providerId,
+        volumeRef: `scad-data-${release.appId}`,
+        state: "running",
+        lastStartedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: machines.appId,
+        set: {
+          providerId: data.providerId,
+          state: "running",
+          lastStartedAt: new Date(),
+        },
+      });
+  } else {
+    const logTail = await readBuildLogTail(paths, release.id, 50);
+    const error = {
+      ...data.error,
+      details: {
+        ...data.error.details,
+        log_tail: logTail,
+      },
+    };
+    await tx
+      .update(releases)
+      .set({
+        status: "failed",
+        error,
+      })
+      .where(eq(releases.id, release.id));
+
+    // Leave previous ready release serving: if any ready release exists, app stays running.
+    const ready = await tx
+      .select()
+      .from(releases)
+      .where(and(eq(releases.appId, release.appId), eq(releases.status, "ready")))
+      .limit(1);
+    await tx
+      .update(apps)
+      .set({ status: ready[0] ? "running" : "stopped" })
+      .where(eq(apps.id, release.appId));
+  }
+}

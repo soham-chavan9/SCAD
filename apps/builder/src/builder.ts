@@ -1,36 +1,54 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyManifestDefaults, makeError, type ManifestInput } from "@scad/shared";
-import { DockerRuntimeProvider } from "@scad/runtime-docker";
-import { dockerBuild } from "./docker-build.js";
+import { deploySpecFromManifest, makeError } from "@scad/shared";
+import { DockerRuntimeProvider, RootImageError, VolumeQuotaExceededError } from "@scad/runtime-docker";
+import { AutodetectError, prepareBuildContext } from "./autodetect.js";
+import { buildFailedHint } from "./build-hint.js";
+import { BUILD_TIMEOUT_MS, dockerBuild, type BuildResult } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
-import { smokeCheckHttp } from "./smoke.js";
 
-/**
- * Docker relative CPU weight for one CPU. `1` is not one CPU; it starves the
- * container whenever anything else on the host is runnable.
- */
-export const DEFAULT_CPU_SHARES = 1024;
+export { DEFAULT_CPU_SHARES, startToArgv } from "@scad/shared";
 
-/**
- * Split manifest.start into argv. Quotes are grouping, not shell syntax:
- * the result is passed as a Docker entrypoint array, never to `/bin/sh -c`.
- */
-export function startToArgv(start: string): string[] {
-  const out: string[] = [];
-  const re = /"([^"\\]|\\.)*"|'([^'\\]|\\.)*'|\S+/g;
-  for (const match of start.trim().matchAll(re)) {
-    let token = match[0];
-    if (
-      (token.startsWith('"') && token.endsWith('"')) ||
-      (token.startsWith("'") && token.endsWith("'"))
-    ) {
-      token = token.slice(1, -1).replace(/\\(["'\\])/g, "$1");
-    }
-    if (token.length > 0) out.push(token);
+/** §8 envelope for a deploy that the runtime refused. */
+export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> {
+  if (err instanceof VolumeQuotaExceededError) {
+    return makeError(
+      "LIMIT_EXCEEDED",
+      `The app's /data volume uses ${Math.ceil(err.usedBytes / 1048576)} MiB, over its ${Math.floor(err.limitBytes / 1048576)} MiB limit`,
+      'Delete data under /data, or raise "resources.disk_gb" in scad.json (cap 5), then republish. The previous release keeps its data.',
+      { used_bytes: err.usedBytes, limit_bytes: err.limitBytes },
+    );
   }
-  return out;
+  if (err instanceof RootImageError) {
+    return makeError(
+      "BUILD_FAILED",
+      err.message,
+      'Add a non-root "USER" line to the Dockerfile (for example "USER node" on node images, or create a user and switch to it), then republish.',
+      {},
+    );
+  }
+  return makeError(
+    "BUILD_FAILED",
+    err instanceof Error ? err.message : "Builder failed",
+    "Inspect the build log, fix the app, and republish.",
+    {},
+  );
+}
+
+/** §8 envelope for a failed `docker build` (the control plane adds `log_tail`). */
+export function buildFailureEnvelope(
+  build: Extract<BuildResult, { ok: false }>,
+): ReturnType<typeof makeError> {
+  if (build.timedOut) {
+    return makeError(
+      "BUILD_FAILED",
+      build.message,
+      `Builds get ${BUILD_TIMEOUT_MS / 60_000} minutes. Make the build faster: vendor dependencies instead of compiling them in RUN steps, drop unneeded steps, and use a smaller base image, then republish.`,
+      { timed_out: true },
+    );
+  }
+  return makeError("BUILD_FAILED", build.message, buildFailedHint(build.log.split("\n").slice(-200)), {});
 }
 
 export type ClaimedJob = {
@@ -94,35 +112,56 @@ export class Builder {
         throw err;
       }
 
+      // No Dockerfile: write one from a built-in template (T2.4). Port comes
+      // from the stored manifest; env is not needed (and not fetched) yet.
+      const { port: templatePort } = deploySpecFromManifest({
+        appId: job.appId,
+        imageRef: "",
+        manifest: job.manifest,
+        runtimeEnv: {},
+      });
+      try {
+        const { kind } = await prepareBuildContext(work, templatePort);
+        if (kind !== "dockerfile") {
+          await this.#log(job.releaseId, `no Dockerfile: using SCAD's built-in ${kind} template`);
+        }
+      } catch (err) {
+        if (err instanceof AutodetectError) {
+          await this.#log(job.releaseId, `auto-detect failed: ${err.message}`);
+          await this.#fail(job.releaseId, err.envelope);
+          return;
+        }
+        throw err;
+      }
+
       const imageRef = `scad-apps/${job.appId}:v${job.version}`;
       const build = await dockerBuild({ contextDir: work, imageRef });
       await this.#log(job.releaseId, build.log);
 
       if (!build.ok) {
-        await this.#fail(
-          job.releaseId,
-          makeError(
-            "BUILD_FAILED",
-            build.message,
-            "Fix the Dockerfile (or build context) and republish.",
-            {},
-          ),
-        );
+        await this.#fail(job.releaseId, buildFailureEnvelope(build));
         return;
       }
 
-      const manifest = applyManifestDefaults(
-        (job.manifest ?? {}) as ManifestInput,
-      );
-      const port = manifest.port;
-      const startArgv =
-        manifest.start !== undefined ? startToArgv(manifest.start) : undefined;
+      // Stored env vars (incl. secrets) are fetched only now, after the build,
+      // so they never reach `docker build` (INV7, INV8). Never logged.
+      const runtimeEnv = await this.#runtimeEnv(job.releaseId);
+      const spec = deploySpecFromManifest({
+        appId: job.appId,
+        imageRef,
+        manifest: job.manifest,
+        runtimeEnv,
+      });
+      const port = spec.port;
 
       try {
         await this.#log(job.releaseId, `smoke-checking port ${port}`);
-        await smokeCheckHttp({ imageRef, port, timeoutMs: 30_000 });
+        // Same hardening and internal app network as the deploy (T2.2): the
+        // new image never runs with internet, host access, or a published port.
+        await this.#runtime.smokeCheck(spec, { timeoutMs: 30_000 });
       } catch (err) {
-        await this.#log(job.releaseId, `smoke failed: ${String(err)}`);
+        if (err instanceof RootImageError) throw err; // BUILD_FAILED with its own hint
+        await this.#log(job.releaseId, `smoke failed: ${err instanceof Error ? err.message : "unknown error"}`);
         await this.#fail(
           job.releaseId,
           makeError(
@@ -135,38 +174,30 @@ export class Builder {
         return;
       }
 
-      await this.#runtime.ensureApp(job.appId, manifest.resources.disk_gb);
-      const machine = await this.#runtime.deploy({
-        appId: job.appId,
-        imageRef,
-        port,
-        ...(startArgv !== undefined && startArgv.length > 0 ? { start: startArgv } : {}),
-        env: manifest.env,
-        egressAllow: manifest.egress,
-        limits: {
-          memoryMb: manifest.resources.memory_mb,
-          cpuShares: DEFAULT_CPU_SHARES,
-          diskGb: manifest.resources.disk_gb,
-          pids: 128,
-        },
-      });
+      await this.#runtime.ensureApp(job.appId, spec.limits.diskGb);
+      const machine = await this.#runtime.deploy(spec);
 
       await this.#completeOk(job.releaseId, imageRef, machine.providerId);
       await this.#log(job.releaseId, `deployed ${machine.providerId}`);
     } catch (err) {
       await this.#log(job.releaseId, `builder error: ${String(err)}`);
-      await this.#fail(
-        job.releaseId,
-        makeError(
-          "BUILD_FAILED",
-          err instanceof Error ? err.message : "Builder failed",
-          "Inspect the build log, fix the app, and republish.",
-          {},
-        ),
-      );
+      await this.#fail(job.releaseId, deployErrorEnvelope(err));
     } finally {
       await rm(work, { recursive: true, force: true });
     }
+  }
+
+  /** Decrypted stored env for this release's app, fetched just in time (T1.6). */
+  async #runtimeEnv(releaseId: string): Promise<Record<string, string>> {
+    const res = await this.#fetch(`${this.#baseUrl}/internal/builds/${releaseId}/runtime-env`, {
+      method: "POST",
+      headers: { "x-scad-internal-token": this.#token },
+    });
+    if (!res.ok) {
+      throw new Error(`runtime-env failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { env: Record<string, string> };
+    return body.env;
   }
 
   async #log(releaseId: string, chunk: string): Promise<void> {

@@ -1,17 +1,21 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { ScadApiError } from "@scad/api-client";
 import { Builder } from "@scad/builder";
-import { loginWithDeviceCode, publishDir } from "@scad/cli";
+import { randomBytes } from "node:crypto";
+import { listEnv, loginWithDeviceCode, publishDir, setEnv } from "@scad/cli";
+import Docker from "dockerode";
 import { DockerRuntimeProvider } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
 import { machines, releases } from "./db/schema.js";
+import { RuntimeLogCollector } from "./logs/collector.js";
+import { recentRuntimeLogs } from "./logs/runtime-log-store.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
 
@@ -46,7 +50,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     dbBundle = createDb(databaseUrl);
     await dbBundle.db.execute(sql`
       TRUNCATE TABLE
-        oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
+        env_vars, oauth_states, login_codes, sessions, audit_events, machines, releases, pats, apps, users
       RESTART IDENTITY CASCADE
     `);
 
@@ -57,6 +61,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
       publicBaseUrl: "http://127.0.0.1",
       operatorEmails: ["publisher@example.com"],
       internalToken,
+      masterKeys: { current: randomBytes(32), previous: [] },
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
     const addr = app.server.address();
@@ -140,6 +145,129 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
         .where(eq(releases.id, result.releaseId))
         .limit(1);
       expect(release?.status).toBe("ready");
+
+      // T1.7b: the container's own output lands in SCAD's runtime log store.
+      const collector = new RuntimeLogCollector({ db: dbBundle.db, runtime, flushMs: 50 });
+      try {
+        await collector.sweep();
+        const deadline = Date.now() + 10_000;
+        let lines: string[] = [];
+        while (Date.now() < deadline) {
+          await collector.flush();
+          lines = (await recentRuntimeLogs(dbBundle.db, result.appId, 50)).map((r) => r.line);
+          if (lines.some((l) => l.includes("hello-node listening"))) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(lines.some((l) => l.includes("hello-node listening"))).toBe(true);
+      } finally {
+        await collector.close();
+      }
+    },
+    300_000,
+  );
+
+  // T2.4: no Dockerfile; SCAD's built-in templates build each layout offline.
+  for (const layout of [
+    { label: "a directory with only package.json", name: "pkg-only", dir: "pkg-only" },
+    { label: "examples/hello-python (requirements.txt)", name: "hello-python", dir: "examples/hello-python" },
+    { label: "examples/hello-static (index.html)", name: "hello-static", dir: "examples/hello-static" },
+  ]) {
+    it(
+      `publishes ${layout.label} without a Dockerfile (T2.4)`,
+      async () => {
+        const dir =
+          layout.dir === "pkg-only"
+            ? await writeFixture(dataDir, {
+                "package.json": JSON.stringify({
+                  name: "pkg-only",
+                  scripts: {
+                    start:
+                      "node -e \"require('http').createServer((q,r)=>r.end('pkg-only')).listen(process.env.PORT)\"",
+                  },
+                }),
+              })
+            : join(process.cwd(), layout.dir);
+        const result = await publishDir({ dir, name: layout.name, configPath, pollMs: 300 });
+        appIds.push(result.appId);
+        const [release] = await dbBundle.db
+          .select()
+          .from(releases)
+          .where(eq(releases.id, result.releaseId))
+          .limit(1);
+        expect(release?.status).toBe("ready");
+        const [machine] = await dbBundle.db
+          .select()
+          .from(machines)
+          .where(eq(machines.appId, result.appId))
+          .limit(1);
+        expect(
+          await runtime.status({ appId: result.appId, providerId: machine!.providerId }),
+        ).toBe("running");
+      },
+      300_000,
+    );
+  }
+
+  it(
+    "scad.json drives port, start command, env, and resources (T1.5)",
+    async () => {
+      // CMD listens on 8080; only the manifest start argv moves it to 3000.
+      const dir = await writeFixture(dataDir, {
+        Dockerfile:
+          "FROM node:22-alpine\nUSER node\nWORKDIR /home/node\nCOPY server.js .\nCMD [\"node\", \"server.js\"]\n",
+        "server.js": [
+          "const http = require('node:http');",
+          "const port = process.argv.includes('--mode=manifest') ? 3000 : 8080;",
+          "http.createServer((_q, r) => r.end(process.env.GREETING ?? 'none')).listen(port, '0.0.0.0');",
+        ].join("\n"),
+        "scad.json": JSON.stringify({
+          name: "manifest-app",
+          port: 3000,
+          start: "node server.js --mode=manifest",
+          env: { GREETING: "hi from scad.json" },
+          resources: { memory_mb: 256 },
+        }),
+      });
+
+      const result = await publishDir({ dir, name: "manifest-app", configPath, pollMs: 300 });
+      appIds.push(result.appId);
+
+      const [machine] = await dbBundle.db
+        .select()
+        .from(machines)
+        .where(eq(machines.appId, result.appId))
+        .limit(1);
+      const info = await new Docker().getContainer(machine!.providerId).inspect();
+      expect(info.State.Running).toBe(true);
+      expect(info.Config.Entrypoint).toEqual(["node", "server.js", "--mode=manifest"]);
+      expect(info.Config.Env).toContain("GREETING=hi from scad.json");
+      expect(info.HostConfig.Memory).toBe(256 * 1024 * 1024);
+      expect(Object.keys(info.Config.ExposedPorts ?? {})).toContain("3000/tcp");
+    },
+    300_000,
+  );
+
+  it(
+    "a secret set with scad env is injected at container start, never into the build or logs (T1.6)",
+    async () => {
+      const secret = `sk-${randomBytes(12).toString("hex")}`;
+      const example = join(process.cwd(), "examples/hello-node");
+      await setEnv({ app: "hello-node", vars: { API_TOKEN: secret }, secret: true, configPath });
+      expect(JSON.stringify(await listEnv({ app: "hello-node", configPath }))).not.toContain(secret);
+
+      const result = await publishDir({ dir: example, name: "hello-node", configPath, pollMs: 300 });
+      const [machine] = await dbBundle.db
+        .select()
+        .from(machines)
+        .where(eq(machines.appId, result.appId))
+        .limit(1);
+      const info = await new Docker().getContainer(machine!.providerId).inspect();
+      expect(info.Config.Env).toContain(`API_TOKEN=${secret}`);
+
+      const logs = await fetch(`${baseUrl}/v1/releases/${result.releaseId}`, {
+        headers: { authorization: `Bearer ${JSON.parse(await readFile(configPath, "utf8")).pat}` },
+      });
+      expect(await logs.text()).not.toContain(secret);
     },
     300_000,
   );

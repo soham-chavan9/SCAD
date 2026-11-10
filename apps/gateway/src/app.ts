@@ -5,11 +5,13 @@ import type { Db } from "@scad/control-plane";
 import type { IdentityProvider } from "./auth/identity.js";
 import { authHost, parseHost } from "./host.js";
 import type { IdentityKeyMaterial } from "./identity/keys.js";
+import type { Mailer } from "./mail/mailer.js";
 import { notFoundPage } from "./pages.js";
 import { attachWebSocketProxy } from "./proxy/websocket.js";
 import type { AppResolver } from "./resolve.js";
 import { appHostRoutes } from "./routes/app-host.js";
 import { authHostRoutes, type AuthHostOpts } from "./routes/auth-host.js";
+import { WakeCoordinator, type MachineClient } from "./wake.js";
 
 export type BuildGatewayOptions = {
   db: Db["db"];
@@ -18,6 +20,16 @@ export type BuildGatewayOptions = {
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
   allowDevLogin?: boolean;
+  /** Sends magic-link emails (T1.1). Required to offer email sign-in. */
+  mailer: Mailer;
+  /** Clock override (tests). */
+  now?: () => Date;
+  /** Control-plane wake/touch client (T1.4). Omit to proxy without waking. */
+  machines?: MachineClient;
+  /** Max hold for non-HTML requests while an app wakes (default 15 s, §14). */
+  wakeBudgetMs?: number;
+  /** Hold for HTML navigations before showing the wait page (default 3 s). */
+  htmlHoldMs?: number;
 };
 
 export async function buildGateway(opts: BuildGatewayOptions) {
@@ -26,6 +38,17 @@ export async function buildGateway(opts: BuildGatewayOptions) {
   await app.register(replyFrom);
 
   const authHostname = authHost(opts.baseDomain);
+  const wake = opts.machines
+    ? new WakeCoordinator({
+        client: opts.machines,
+        ...(opts.wakeBudgetMs !== undefined ? { readyTimeoutMs: opts.wakeBudgetMs } : {}),
+      })
+    : undefined;
+  const wakeOpts = {
+    ...(wake ? { wake } : {}),
+    ...(opts.wakeBudgetMs !== undefined ? { wakeBudgetMs: opts.wakeBudgetMs } : {}),
+    ...(opts.htmlHoldMs !== undefined ? { htmlHoldMs: opts.htmlHoldMs } : {}),
+  };
 
   await app.register(
     async (scope) => {
@@ -34,6 +57,8 @@ export async function buildGateway(opts: BuildGatewayOptions) {
         baseDomain: opts.baseDomain,
         identity: opts.identity,
         keys: opts.keys,
+        mailer: opts.mailer,
+        now: opts.now ?? (() => new Date()),
         ...(opts.allowDevLogin !== undefined ? { allowDevLogin: opts.allowDevLogin } : {}),
       };
       await scope.register(authHostRoutes, authOpts);
@@ -53,6 +78,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
       baseDomain: opts.baseDomain,
       resolver: opts.resolver,
       keys: opts.keys,
+      ...wakeOpts,
     });
   });
 
@@ -61,6 +87,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
     baseDomain: opts.baseDomain,
     resolver: opts.resolver,
     keys: opts.keys,
+    ...wakeOpts,
   });
 
   return app;

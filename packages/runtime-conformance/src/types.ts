@@ -44,3 +44,17 @@ export interface RuntimeProvider {
   logs(m: MachineRef, opts: { follow: boolean; tail?: number }): AsyncIterable<string>;
   remove(appId: string, opts: { deleteVolume: boolean }): Promise<void>;
 }
+
+/**
+ * Optional driver capabilities. The control plane's scheduled jobs use them
+ * when a driver has them, and skip that job when it does not.
+ */
+export interface RuntimeCapabilities {
+  /** Every app the runtime holds resources for (orphan reaper, T2.5). */
+  listApps?(): Promise<{ appId: string; resources: string[] }[]>;
+  /** Stop the app if its `/data` volume is over its size limit (measured quota, T1.3). */
+  enforceVolumeQuota?(m: MachineRef): Promise<"ok" | "stopped">;
+}
+
+/** A runtime driver plus whatever optional capabilities it has. */
+export type ManagedRuntime = RuntimeProvider & RuntimeCapabilities;

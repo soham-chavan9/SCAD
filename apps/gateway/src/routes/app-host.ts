@@ -1,5 +1,7 @@
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import { makeError } from "@scad/shared";
 import type { Db } from "@scad/control-plane";
+import { canViewApp } from "../auth/access.js";
 import { LoginCodeError, consumeLoginCode } from "../auth/login-codes.js";
 import { createSession, loadSessionUser } from "../auth/sessions.js";
 import type { GatewayUser } from "../auth/users.js";
@@ -12,16 +14,45 @@ import {
   badCallbackPage,
   forbiddenPage,
   notFoundPage,
+  wakingPage,
 } from "../pages.js";
 import type { AppResolver, ResolvedApp } from "../resolve.js";
 import { upstreamTarget } from "../resolve.js";
+import {
+  HTML_HOLD_MS,
+  WAKE_BUDGET_MS,
+  isConnectFailure,
+  isHtmlNavigation,
+  type HoldOutcome,
+  type WakeCoordinator,
+} from "../wake.js";
 
 export type AppHostOpts = {
   db: Db["db"];
   baseDomain: string;
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
+  /** Wake-on-request (T1.4). Without it, stopped apps are proxied as-is. */
+  wake?: WakeCoordinator;
+  wakeBudgetMs?: number;
+  htmlHoldMs?: number;
 };
+
+/** 503 while the app starts: wait page for browsers, Retry-After for everything else. */
+function sendWaking(request: FastifyRequest, reply: FastifyReply, outcome: HoldOutcome) {
+  void reply.status(503).header("retry-after", "2").header("cache-control", "no-store");
+  if (isHtmlNavigation(request)) {
+    return reply.type("text/html").send(wakingPage(outcome === "failed"));
+  }
+  return reply.send(
+    makeError(
+      "INTERNAL",
+      outcome === "failed" ? "The app could not be started" : "The app is starting",
+      "Retry after the Retry-After interval.",
+      {},
+    ),
+  );
+}
 
 function requestHost(request: FastifyRequest): string {
   return (request.headers.host ?? "").toLowerCase();
@@ -42,17 +73,6 @@ function issuerUrl(baseDomain: string): string {
   return `${proto}://${authHost(baseDomain)}`;
 }
 
-function aclAllowsOwner(app: ResolvedApp, userId: string): boolean {
-  if (app.ownerStatus !== "active") return false;
-  if (app.status === "suspended" || app.status === "expired" || app.status === "deleted") {
-    return false;
-  }
-  if (app.expiresAt && new Date(app.expiresAt).getTime() <= Date.now()) {
-    return false;
-  }
-  return app.ownerId === userId;
-}
-
 async function requireAppSession(
   request: FastifyRequest,
   opts: AppHostOpts,
@@ -71,7 +91,7 @@ async function requireAppSession(
     return { redirect: loginRedirectUrl(opts.baseDomain, request) };
   }
 
-  if (!aclAllowsOwner(resolved, user.id)) {
+  if (!(await canViewApp(opts.db, resolved, user))) {
     return { forbidden: true };
   }
 
@@ -135,6 +155,19 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
 
     const { resolved, user } = gate;
     const target = upstreamTarget(resolved);
+    const wake = opts.wake;
+    if (wake) {
+      wake.touch(resolved.appId, user.id);
+      if (wake.needsWake(resolved)) {
+        const holdMs = isHtmlNavigation(request)
+          ? (opts.htmlHoldMs ?? HTML_HOLD_MS)
+          : (opts.wakeBudgetMs ?? WAKE_BUDGET_MS);
+        const outcome = await wake.hold(wake.wake(resolved.appId, target), holdMs);
+        if (outcome !== "ready") {
+          return sendWaking(request, reply, outcome);
+        }
+      }
+    }
     const identityHeaders = await buildUpstreamHeaders({
       incoming: request.headers,
       user,
@@ -146,6 +179,15 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
     const dest = `http://${target.host}:${target.port}`;
     return reply.from(`${dest}${request.url}`, {
       rewriteRequestHeaders: () => identityHeaders,
+      onError: (errReply, { error }) => {
+        // Stale "running" status: the app was idle-stopped. Wake it; the body can't be replayed.
+        if (wake && isConnectFailure(error)) {
+          wake.markAsleep(resolved.appId);
+          void wake.wake(resolved.appId, target).catch(() => undefined);
+          return sendWaking(request, reply, "pending");
+        }
+        return errReply.send(error);
+      },
     });
   });
 };

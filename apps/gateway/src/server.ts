@@ -4,7 +4,9 @@ import { FakeIdentityProvider } from "./auth/identity.js";
 import { buildGateway } from "./app.js";
 import { assertFakeAuthAllowed } from "./fake-auth-guard.js";
 import { resolveIdentityKeys } from "./identity/keys.js";
+import { SmtpMailer, defaultFromAddress } from "./mail/mailer.js";
 import { createHttpAppResolver } from "./resolve.js";
+import { createHttpMachineClient } from "./wake.js";
 
 async function main(): Promise<void> {
   const databaseUrl = required("DATABASE_URL");
@@ -23,6 +25,9 @@ async function main(): Promise<void> {
       ? { privateKeyPem: process.env["JWT_PRIVATE_KEY"] }
       : {}),
     ...(process.env["JWT_PUBLIC_KEY"] ? { publicKeyPem: process.env["JWT_PUBLIC_KEY"] } : {}),
+    ...(process.env["JWT_PREVIOUS_PUBLIC_KEY"]
+      ? { previousPublicKeysPem: process.env["JWT_PREVIOUS_PUBLIC_KEY"] }
+      : {}),
   });
 
   const identity = fakeAuth
@@ -32,8 +37,14 @@ async function main(): Promise<void> {
         clientSecret: required("GITHUB_CLIENT_SECRET"),
       });
 
+  const mailer = new SmtpMailer({
+    smtpUrl: required("SMTP_URL"),
+    from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain),
+  });
+
   const gateway = await buildGateway({
     db,
+    mailer,
     baseDomain,
     identity,
     keys,
@@ -42,6 +53,7 @@ async function main(): Promise<void> {
       internalSecret,
     }),
     allowDevLogin: fakeAuth,
+    machines: createHttpMachineClient({ controlPlaneUrl, internalSecret }),
   });
 
   await gateway.listen({ port, host: "0.0.0.0" });

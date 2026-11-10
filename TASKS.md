@@ -93,41 +93,50 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 ## M1: Alpha. Friends can use an app you published (weeks 3 to 4)
 
-- [ ] **T1.1 Magic-link sign-in**
+- [x] **T1.1 Magic-link sign-in**
   - Depends: T0.6. Files: gateway/auth host, `magic_links` migration, SMTP mailer (Mailpit locally).
   - Done when: link arrives in Mailpit, works once, expires after 10 minutes, rate limits per email and IP; an unknown email still gets the same response (no account enumeration).
+  - Tests: `apps/gateway/src/magic-link.integration.test.ts`. Docs: `docs/sign-in.md`. `/login` is now a chooser page; GitHub starts at `/login/github`.
 
-- [ ] **T1.2 Allowlists and sharing**
+- [x] **T1.2 Allowlists and sharing**
   - Depends: T0.7. Files: control plane share routes, CLI `share`/`unshare`/`ls`, gateway ACL, `app_access` migration.
   - Steps: share by email (user may not exist yet); first sign-in with that email links the account; `visibility=instance` option.
   - Done when: allowlisted friend gets in, others get 403; unshare takes effect within 5 seconds; owners cannot manage others' apps (INV10).
+  - Tests: `apps/gateway/src/sharing.integration.test.ts`, `packages/cli/src/share.test.ts`. Docs: `docs/sharing.md`. Adds `GET /v1/apps/:id/share` and `PATCH /v1/apps/:id {visibility}` to the §8 routes.
 
-- [ ] **T1.3 Persistent `/data` volume**
+- [x] **T1.3 Persistent `/data` volume**
   - Depends: T0.4. Files: runtime-docker, control plane.
   - Done when: a counter app's data survives stop/start and redeploy; `remove` with `deleteVolume: false` keeps data; volume size limit enforced.
+  - Tests: `packages/runtime-docker/src/volume.test.ts`. Docs: `docs/data-volume.md`. Size limit is **measured** (refuse start/deploy when over; `enforceVolumeQuota` stops a running app) because Docker local volumes have no hard quota. A periodic caller lands with the scheduler (T1.4/T2.5).
 
-- [ ] **T1.4 Idle stop and wake on request**
+- [x] **T1.4 Idle stop and wake on request**
   - Depends: T0.7. Files: control plane scheduler (`last_request_at`), `/internal/wake`, gateway wake page.
   - Steps: stop after 10 minutes without traffic unless pinned; single-flight wake so 50 concurrent requests cause one start.
   - Done when: stopped app serves the first request within 10 s; wake storm test shows exactly one `start` call; HTML navigations see the self-retrying page.
+  - Tests: `apps/control-plane/src/idle-wake.integration.test.ts`, `apps/gateway/src/wake.integration.test.ts`, `packages/runtime-docker/src/wake-latency.test.ts` (real Docker, ~2.7 s). Docs: `docs/idle-wake.md`. Adds `/internal/touch` (already in §8) and the control plane now holds a `RuntimeProvider`.
 
-- [ ] **T1.5 Manifest handling**
+- [x] **T1.5 Manifest handling**
   - Depends: T0.5. Done when: `scad.json` fields drive port, start command, env, resources; invalid manifests return `MANIFEST_INVALID` with a field-level hint; defaults from §11 apply when absent.
+  - Tests: `apps/control-plane/src/manifest-publish.integration.test.ts`, `packages/shared/src/manifest.test.ts`, and the real-Docker case in `publish.integration.test.ts`. Docs: `docs/manifest.md`. The control plane reads root `scad.json` from the tarball; the smoke check now runs the manifest `start`/`env`. `egress` and `frame_ancestors` are stored only (T2.1 and later).
 
-- [ ] **T1.6 Env vars and encrypted secrets**
+- [x] **T1.6 Env vars and encrypted secrets**
   - Depends: T0.3. Files: `env_vars` migration, crypto helper using `MASTER_KEY` (AES-256-GCM, per-record nonce), CLI `env set`.
   - Done when: secrets are write-only (never returned by GET, never in logs, never in audit metadata); injected at start; rotating `MASTER_KEY` procedure documented (INV7, INV12).
+  - Tests: `apps/control-plane/src/secrets/crypto.test.ts`, `apps/control-plane/src/env.integration.test.ts`, `packages/cli/src/env.test.ts`, real-Docker case in `publish.integration.test.ts`. Docs: `docs/secrets.md`. Envelope encryption (per-record data key wrapped by `MASTER_KEY`); `scad env set|unset|ls`; env changes redeploy the app. Adds `GET /v1/apps/:id/env` to the §8 routes.
 
-- [ ] **T1.7 Runtime logs**
+- [x] **T1.7 Runtime logs**
   - Depends: T0.4. Done when: `scad logs <app> -f` streams live stdout/stderr; non-owners cannot read logs; 7-day retention job.
+  - Tests: `packages/runtime-docker/src/logs-stream.test.ts` (real Docker follow), `apps/control-plane/src/logs.integration.test.ts` (SSE, INV10, disconnect, retention job), `packages/cli/src/logs.test.ts`. Docs: `docs/logs.md`. Runtime logs (T1.7b): collected into the control plane's `runtime_logs` table, which `scad logs` reads; a daily job deletes rows older than 7 days (`apps/control-plane/src/runtime-log-store.integration.test.ts`). Docker json-file is a 2x1 MB rotating buffer only. Build logs: daily 7-day prune.
 
-- [ ] **T1.8 MCP server**
+- [x] **T1.8 MCP server**
   - Depends: T0.5, T1.2, T1.6, T1.7. Files: `packages/mcp-server`.
   - Steps: tools `publish`, `list_apps`, `get_app`, `share`, `unshare`, `set_env`, `get_logs`, `delete_app`. Descriptions must state purpose, inputs, and error meanings. Errors pass through the §8 envelope including `hint`.
   - Done when: a scripted agent session publishes `examples/hello-node` and shares it using only MCP tools; a forced build error gives the agent enough in `hint` + `log_tail` to fix and retry successfully.
+  - Tests: `tests/e2e/src/mcp-agent.test.ts` (real Docker), `packages/mcp-server/src/server.test.ts`, `apps/builder/src/build-hint.test.ts`, `apps/control-plane/src/delete-app.integration.test.ts`. Docs: `docs/mcp.md`. Also lands §8 `DELETE /v1/apps/:id` (needed by `delete_app`) and a network-aware `BUILD_FAILED` hint.
 
-- [ ] **T1.9 Identity token hardening**
+- [x] **T1.9 Identity token hardening**
   - Depends: T0.7. Done when: JWT rotation via `kid` supported; key rotation test passes; sample verifying snippet in `docs/identity.md`.
+  - Tests: `apps/gateway/src/identity/rotation.test.ts`. Docs: `docs/identity.md`. `kid` is the key's RFC 7638 thumbprint; `JWT_PREVIOUS_PUBLIC_KEY` keeps retired keys in the JWKS during a rotation; JWKS is served with `Cache-Control: public, max-age=300`; `examples/echo-identity` refetches the JWKS once on an unknown kid.
 
 **M1 exit:** one friend, on their own machine's browser, signs in with magic link or GitHub and uses an app you published.
 
@@ -135,25 +144,30 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 ## M2: Beta. A friend publishes unaided, and the platform is safe to trust (weeks 5 to 6)
 
-- [ ] **T2.1 Egress proxy and network policy**
+- [x] **T2.1 Egress proxy and network policy**
   - Depends: T0.4. Files: `apps/egress-proxy`, runtime-docker network wiring.
   - Steps: app networks stay `internal: true`; the egress proxy container is attached to each app network and to an external network; apps get `HTTP_PROXY`/`HTTPS_PROXY` env; proxy identifies the app by source IP, applies that app's allowlist (manifest `egress` filtered by operator policy), resolves DNS itself, blocks private/loopback/link-local/metadata ranges after resolution.
   - Done when (INV1, INV2): adversarial app cannot reach undeclared hosts, `169.254.169.254`, the host gateway IP, other apps, or the Docker socket; allowed domain works; DNS rebinding test fails to reach private IPs.
+  - Tests: `tests/adversarial/src/inv2-egress-proxy.test.ts` (real Docker), `apps/egress-proxy/src/proxy.test.ts`, manifest egress validation in `packages/shared/src/manifest.test.ts`. Docs: `docs/egress.md`. Operator approval is `EGRESS_ALLOWED_DOMAINS` on the proxy (default empty = deny all). The builder's smoke check still runs off the app network (see build-schedule); that moves to T2.2.
 
-- [ ] **T2.2 Hardened container profile and optional gVisor**
+- [x] **T2.2 Hardened container profile and optional gVisor**
   - Depends: T0.4. Done when: runtime test inspects container config for non-root, read-only rootfs, caps dropped, limits set (INV6); `runsc` used automatically when installed and documented when not; fork bomb and memory hog sample apps are contained.
+  - Tests: `packages/runtime-docker/src/hardening.test.ts`, the INV6 case in `invariants.test.ts`, `packages/runtime-docker/src/smoke.test.ts`, `tests/adversarial/src/inv6-resource-limits.test.ts` (`examples/adversarial/fork-bomb`, `memory-hog`). Docs: `docs/hardening.md`. The builder's smoke check now runs on the app's internal network with the deploy's profile (closes the Day 2 finding). gVisor is not available on Docker Desktop for Mac, so the `runsc` path is unit-tested only.
 
-- [ ] **T2.3 Limits and quotas**
+- [x] **T2.3 Limits and quotas**
   - Depends: T1.5. Done when: 11th live app, 101 MB upload, over-cap memory request, and build timeout each return the right code (`LIMIT_EXCEEDED`, `UPLOAD_TOO_LARGE`, `BUILD_FAILED`) with a useful `hint`.
+  - Tests: `apps/control-plane/src/limits.integration.test.ts`, `apps/builder/src/build-timeout.test.ts`. Docs: `docs/limits.md`. The live-app cap counts the whole instance (§14 "per builder"); over-cap `resources` are now `LIMIT_EXCEEDED` instead of `MANIFEST_INVALID`. Fixed: a 101 MB upload returned `500 INTERNAL`.
 
-- [ ] **T2.4 Auto-detect builds**
-  - Depends: T0.5. Reserved decision: tool choice (AGENTS §15). **Ask the human before choosing.**
+- [x] **T2.4 Auto-detect builds**
+  - Depends: T0.5. Reserved decision: tool choice (AGENTS §15). **Ask the human before choosing.** Human chose built-in templates (Nov 8).
   - Done when: a directory with only `package.json` and a Python app with `requirements.txt` and a static site folder each publish without a Dockerfile.
+  - Tests: `apps/builder/src/autodetect.test.ts`, `apps/builder/src/autodetect.docker.test.ts`, T2.4 cases in `apps/control-plane/src/publish.integration.test.ts`. Docs: `docs/autodetect.md`. Examples: `hello-python`, `hello-static`. Builds stay `--network=none`: npm dependencies must be bundled, Python packages vendored as `wheels/`; installing from registries needs a human decision (see build-schedule "Blocked").
 
-- [ ] **T2.5 Lifecycle jobs**
+- [x] **T2.5 Lifecycle jobs**
   - Depends: T1.4. Files: scheduler.
   - Steps: idle stopper (1 min), expiry notifier (daily, email 7 days before), expirer (stop at `expires_at`, delete 14 days later), orphan reaper (reconcile driver state vs DB), usage roll-up (hourly). Viewing renews expiry; `pinned` apps exempt.
   - Done when: fake-clock tests walk an app through warn, stop, grace, delete; viewing resets expiry; reaper flags a container with no DB row.
+  - Tests: `apps/control-plane/src/lifecycle.integration.test.ts`, `packages/runtime-docker/src/inventory.test.ts`. Docs: `docs/lifecycle.md`. Publishing now sets `expires_at` (it was never set before). The reaper flags orphans and marks missing machines; it does not delete Docker resources on its own. Requests are counted per debounced gateway touch.
 
 - [ ] **T2.6 Operator controls and audit**
   - Depends: T1.2. Files: admin routes, CLI `scad admin ...`, audit writer.

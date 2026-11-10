@@ -1,0 +1,5 @@
+{
+  "name": "memory-hog",
+  "port": 8080,
+  "resources": { "memory_mb": 64 }
+}

@@ -41,12 +41,37 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      JWT_PREVIOUS_PUBLIC_KEY: ${JWT_PREVIOUS_PUBLIC_KEY:-}
       GATEWAY_FAKE_AUTH: ${GATEWAY_FAKE_AUTH:-0}
+      # Magic-link email (T1.1). Mailpit inside Compose; UI at http://localhost:8025
+      SMTP_URL: ${GATEWAY_SMTP_URL:-smtp://mailpit:1025}
+      SMTP_FROM: ${SMTP_FROM:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  # T2.1: the only way out for app containers (INV2). Attached to each app's
+  # internal network by the runtime driver; reads per-app policy files the
+  # driver writes to SCAD_EGRESS_POLICY_DIR (mounted read-only).
+  egress-proxy:
+    container_name: scad-egress
+    build:
+      context: apps/egress-proxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      EGRESS_POLICY_DIR: /policy
+      # Operator approval (comma list; `*.example.com` patterns; `*` = any domain an app declares). Empty = deny all.
+      EGRESS_ALLOWED_DOMAINS: ${EGRESS_ALLOWED_DOMAINS:-}
+    volumes:
+      - ${SCAD_EGRESS_POLICY_DIR:-~/.scad/egress-policy}:/policy:ro
 
 volumes:
   postgres_data:

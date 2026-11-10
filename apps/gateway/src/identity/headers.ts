@@ -59,8 +59,12 @@ export async function buildUpstreamHeaders(opts: {
   return out;
 }
 
+/** Current signing key first, then keys retired by a rotation that is still settling (T1.9). */
 export function jwksResponse(keys: IdentityKeyMaterial): { keys: JWKPublic[] } {
-  return { keys: [keys.publicJwk as JWKPublic] };
+  return { keys: [keys.publicJwk as JWKPublic, ...(keys.previousJwks as JWKPublic[])] };
 }
+
+/** Apps may cache the JWKS this long; keep retired keys listed for longer than this. */
+export const JWKS_CACHE_SECONDS = 300;
 
 type JWKPublic = Record<string, unknown>;

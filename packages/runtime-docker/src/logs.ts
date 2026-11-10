@@ -1,45 +1,81 @@
 import type { Readable } from "node:stream";
 
-/** Decode Docker's multiplexed log stream into text lines. */
-export async function* linesFromDockerLogs(
-  data: Buffer | Readable,
-): AsyncIterable<string> {
-  const text = Buffer.isBuffer(data)
-    ? demuxToString(data)
-    : await streamToDemuxedString(data);
+/** Longest line kept before it is cut (protects the control plane from a newline-free flood). */
+const MAX_LINE_CHARS = 16 * 1024;
 
-  const parts = text.split(/\r?\n/);
-  for (const part of parts) {
-    if (part.length > 0) {
-      yield part;
+/**
+ * Incremental decoder for Docker's multiplexed log stream (8-byte header per
+ * frame: stream id, 3 zero bytes, uint32 big-endian length). Frames and lines
+ * may be split anywhere across chunks. Plain text (TTY containers) passes through.
+ */
+export function createLogDemuxer(): { push(chunk: Buffer): string[]; end(): string[] } {
+  let pending: Buffer = Buffer.alloc(0);
+  let mode: "unknown" | "mux" | "raw" = "unknown";
+  let partial = "";
+
+  function lines(text: string): string[] {
+    const parts = (partial + text).split(/\r?\n/);
+    partial = parts.pop() ?? "";
+    if (partial.length > MAX_LINE_CHARS) {
+      parts.push(partial.slice(0, MAX_LINE_CHARS));
+      partial = "";
     }
+    return parts.filter((p) => p.length > 0);
   }
-}
 
-function demuxToString(buf: Buffer): string {
-  // Docker multiplexed frames: 8-byte header + payload.
-  // If the buffer doesn't look multiplexed, treat as plain UTF-8.
-  if (buf.length >= 8 && (buf[0] === 1 || buf[0] === 2) && buf[1] === 0 && buf[2] === 0) {
-    const chunks: Buffer[] = [];
-    let offset = 0;
-    while (offset + 8 <= buf.length) {
-      const size = buf.readUInt32BE(offset + 4);
-      offset += 8;
-      if (offset + size > buf.length) {
-        break;
+  return {
+    push(chunk: Buffer): string[] {
+      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+      if (mode === "unknown") {
+        const first = pending[0] ?? 0;
+        if (first > 2) {
+          mode = "raw"; // A mux header starts with stream id 0, 1 or 2; text never does.
+        } else if (pending.length < 4) {
+          return [];
+        } else {
+          mode = pending[1] === 0 && pending[2] === 0 && pending[3] === 0 ? "mux" : "raw";
+        }
       }
-      chunks.push(buf.subarray(offset, offset + size));
-      offset += size;
-    }
-    return Buffer.concat(chunks).toString("utf8");
-  }
-  return buf.toString("utf8");
+      if (mode === "raw") {
+        const text = pending.toString("utf8");
+        pending = Buffer.alloc(0);
+        return lines(text);
+      }
+      const out: string[] = [];
+      while (pending.length >= 8) {
+        const size = pending.readUInt32BE(4);
+        if (pending.length < 8 + size) break;
+        out.push(...lines(pending.subarray(8, 8 + size).toString("utf8")));
+        pending = pending.subarray(8 + size);
+      }
+      return out;
+    },
+    end(): string[] {
+      const rest = mode === "raw" || mode === "unknown" ? pending.toString("utf8") : "";
+      pending = Buffer.alloc(0);
+      const out = lines(rest);
+      if (partial.length > 0) out.push(partial);
+      partial = "";
+      return out;
+    },
+  };
 }
 
-async function streamToDemuxedString(stream: Readable): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+/** Decode Docker logs (a buffer, or a live stream) into text lines as they arrive. */
+export async function* linesFromDockerLogs(data: Buffer | Readable): AsyncIterable<string> {
+  const demux = createLogDemuxer();
+  if (Buffer.isBuffer(data)) {
+    yield* demux.push(data);
+    yield* demux.end();
+    return;
   }
-  return demuxToString(Buffer.concat(chunks));
+  try {
+    for await (const chunk of data) {
+      yield* demux.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    yield* demux.end();
+  } finally {
+    // Consumer stopped early (client disconnected): close the Docker stream.
+    data.destroy();
+  }
 }
