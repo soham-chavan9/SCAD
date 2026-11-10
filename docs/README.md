@@ -16,6 +16,7 @@ Canonical agent brief and build plan live at the repo root:
 - [`operator.md`](operator.md) — `scad admin`: suspend apps and users, sign-up invites, audit log
 - [`usage.md`](usage.md) — `scad admin usage` and the operator page (`/admin`)
 - [`egress.md`](egress.md) — outbound network through the egress proxy and `EGRESS_ALLOWED_DOMAINS`
+- [`../tests/adversarial/README.md`](../tests/adversarial/README.md) — adversarial suite: every attack scenario, its test, and its invariant
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
 Threat model, runbook, and identity docs land in later tasks.
