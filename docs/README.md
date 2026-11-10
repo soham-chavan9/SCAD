@@ -19,4 +19,4 @@ Canonical agent brief and build plan live at the repo root:
 - [`../tests/adversarial/README.md`](../tests/adversarial/README.md) — adversarial suite: every attack scenario, its test, and its invariant
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
-Threat model, runbook, and identity docs land in later tasks.
+- [`runbook.md`](runbook.md) — back up, restore, rotate keys, suspend and delete user data, disaster reset
