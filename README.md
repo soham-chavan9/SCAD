@@ -42,7 +42,7 @@ docs/          pointers to AGENTS.md / TASKS.md; more docs later
 
 ## Outbound network
 
-Apps can only reach domains declared in `scad.json` `egress` and approved in `EGRESS_ALLOWED_DOMAINS`; run `mkdir -p ~/.scad/egress-policy` before `docker compose up -d`. See `docs/egress.md`.
+Apps can only reach public domains they declare in `scad.json` `egress` (the default `EGRESS_ALLOWED_DOMAINS=*` allows any declared domain; set a comma list to narrow it, or `none` to refuse all egress); run `mkdir -p ~/.scad/egress-policy` before `docker compose up -d`. See `docs/egress.md`.
 
 ## Agents (MCP)
 

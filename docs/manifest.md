@@ -24,7 +24,7 @@ behaviour.
 | `port` | 8080 | 1–65535 | smoke check, container port, gateway upstream |
 | `start` | image `CMD` | string, split into argv (quotes group words; no shell) | container entrypoint for smoke and deploy |
 | `env` | `{}` | keys `[A-Za-z_][A-Za-z0-9_]*` (≤128 chars), values ≤32 KB | container env (smoke and deploy). Not for secrets: use `scad env set --secret` (see `secrets.md`) |
-| `egress` | `[]` | lowercase public hostnames or `*.domain`, max 50 | enforced by the egress proxy, together with operator approval (see `egress.md`) |
+| `egress` | `[]` | lowercase public hostnames or `*.domain`, max 50 | enforced by the egress proxy; any declared public domain works unless the operator narrows `EGRESS_ALLOWED_DOMAINS` (see `egress.md`) |
 | `resources.memory_mb` | 512 | integer, cap 1024 | container memory limit |
 | `resources.disk_gb` | 1 | integer, cap 5 | `/data` size limit (see `data-volume.md`) |
 | `frame_ancestors` | `self` | string | stored; gateway CSP lands later |

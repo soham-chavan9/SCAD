@@ -383,17 +383,19 @@ Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
    T2.6 (Day 5): `OPERATOR_EMAILS`, shared emails, and an operator-managed
    invite list.
 
+## Resolved by human (Nov 9)
+
+1. **Egress default (T2.1).** Apps may reach any public domain they declare in
+   `scad.json` `egress` without a separate approval. Done in T2.1b: the default
+   `EGRESS_ALLOWED_DOMAINS` is `*` (unset or empty means the same), a comma
+   list narrows it, and `none` refuses all egress. Undeclared domains and
+   private/reserved addresses stay refused (INV2). See `docs/egress.md`.
+2. **Merges.** Done on Nov 10: PR #35 landed the stack, so `dev` has all of T0.9–T2.5.
+
 ## Blocked: needs human
 
 1. Still open from T0.8: the GitHub second-account 403 browser check.
-2. **Merges.** PRs #19 → #34 are stacked; merge them in order from #19
-   (GitHub retargets each child to `dev` when its parent branch is deleted on
-   merge).
-3. **Egress approvals.** `EGRESS_ALLOWED_DOMAINS` is empty by default, so no app
-   can reach any domain until you list the ones you approve (or set `*` to
-   approve whatever apps declare). Which default is right is your call
-   (AGENTS §15: widening app access).
-4. **Dependency installs during builds (T2.4).** With `--network=none`,
+2. **Dependency installs during builds (T2.4).** With `--network=none`,
    templates cannot `npm install` or `pip install` from the registries. Today
    Node apps with `dependencies` must be bundled (the CLI never uploads
    `node_modules/`), and Python packages must be vendored as `wheels/`. Both are
@@ -415,7 +417,7 @@ Full gate on `task/t2-5-lifecycle` (top of the stack; includes everything):
    - (d) **Let the CLI upload `node_modules/`** (opt-in), so local installs
      travel with the app. Easy, but uploads get big (100 MB cap) and native
      modules built on macOS will not run on Linux.
-5. **gVisor on a real host.** The `runsc` path is unit-tested only (Docker
+3. **gVisor on a real host.** The `runsc` path is unit-tested only (Docker
    Desktop for Mac has no gVisor). Check it on the Linux host chosen in M3.
-6. If you pause or quit Docker Desktop, the scheduled run restarts it (it was
+4. If you pause or quit Docker Desktop, the scheduled run restarts it (it was
    not running at the start of Day 4).
