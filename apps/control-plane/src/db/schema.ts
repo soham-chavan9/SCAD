@@ -90,6 +90,11 @@ export const machines = pgTable("machines", {
   state: text("state").notNull().default("missing"),
   lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
   lastRequestAt: timestamp("last_request_at", { withTimezone: true }),
+  /** Seconds spent running before the current run (T2.7); see machines/running-time.ts. */
+  runningSeconds: bigint("running_seconds", { mode: "number" }).notNull().default(0),
+  /** Last measured /data size and when (T2.7; written by the quota sweep). */
+  volumeBytes: bigint("volume_bytes", { mode: "number" }),
+  volumeMeasuredAt: timestamp("volume_measured_at", { withTimezone: true }),
 });
 
 export const pats = pgTable("pats", {

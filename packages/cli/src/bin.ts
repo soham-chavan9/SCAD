@@ -7,9 +7,11 @@ import {
   adminInvites,
   adminSuspendApp,
   adminSuspendUser,
+  adminUsage,
   adminUsers,
+  formatUsage,
 } from "./admin.js";
-import { defaultConfigPath } from "./config.js";
+import { defaultConfigPath, loadConfig } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
@@ -277,6 +279,23 @@ async function main(): Promise<void> {
       }
     }),
   );
+  cfg(admin.command("usage").description("Per-app requests, unique viewers, last viewed, running hours, volume size"))
+    .option("--days <n>", "Window for requests and viewers (1-35)", "30")
+    .option("--json", "Print the raw JSON")
+    .action(
+      handleErrors(async (opts: { config: string; days: string; json?: boolean }) => {
+        const report = await adminUsage({ configPath: opts.config, days: Number(opts.days) });
+        console.log(opts.json ? JSON.stringify(report, null, 2) : formatUsage(report));
+      }),
+    );
+  cfg(admin.command("page").description("Print the URL of the operator usage page"))
+    .action(
+      handleErrors(async (opts: { config: string }) => {
+        const config = await loadConfig(opts.config);
+        if (!config) throw new Error("Not logged in. Run `scad login` first.");
+        console.log(new URL("/admin", config.apiUrl).toString());
+      }),
+    );
   cfg(admin.command("audit").description("Recent audit events, newest first"))
     .option("-n, --limit <n>", "How many (1-500)", "50")
     .option("--app <app>", "Only this app (id or <owner-handle>/<slug>)")
