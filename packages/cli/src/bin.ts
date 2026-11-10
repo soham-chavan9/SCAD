@@ -1,5 +1,14 @@
 #!/usr/bin/env node --experimental-strip-types
 import { Command } from "commander";
+import {
+  adminAudit,
+  adminInviteAdd,
+  adminInviteRemove,
+  adminInvites,
+  adminSuspendApp,
+  adminSuspendUser,
+  adminUsers,
+} from "./admin.js";
 import { defaultConfigPath } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
@@ -213,6 +222,73 @@ async function main(): Promise<void> {
       handleErrors(async (app: string, opts: { config: string }) => {
         for (const e of await listEnv({ app, configPath: opts.config })) {
           console.log(e.secret ? `${e.key}=<secret>` : `${e.key}=${e.value}`);
+        }
+      }),
+    );
+
+  // Operator commands (T2.6). Users: id or email. Apps: id or <owner-handle>/<slug>.
+  const admin = program.command("admin").description("Operator controls (OPERATOR_EMAILS only)");
+  const cfg = (c: Command) => c.option("--config <path>", "Config path", defaultConfigPath());
+
+  cfg(admin.command("users").description("List every user with role and status")).action(
+    handleErrors(async (opts: { config: string }) => {
+      for (const u of await adminUsers({ configPath: opts.config })) {
+        console.log(`${u.id}\t${u.email}\t${u.handle}\t${u.role}\t${u.status}`);
+      }
+    }),
+  );
+  for (const [name, suspended] of [["suspend-user", true], ["unsuspend-user", false]] as const) {
+    cfg(admin.command(name).description(suspended ? "Suspend a user (blocked within 5 s; signs them out)" : "Lift a user's suspension"))
+      .argument("<user>", "User id or email")
+      .action(
+        handleErrors(async (user: string, opts: { config: string }) => {
+          const out = await adminSuspendUser({ user, suspended, configPath: opts.config });
+          console.log(`${out.email}: ${out.status}`);
+        }),
+      );
+  }
+  for (const [name, suspended] of [["suspend-app", true], ["unsuspend-app", false]] as const) {
+    cfg(admin.command(name).description(suspended ? "Suspend an app (blocked within 5 s; stops it)" : "Lift an app's suspension"))
+      .argument("<app>", "App id or <owner-handle>/<slug>")
+      .action(
+        handleErrors(async (app: string, opts: { config: string }) => {
+          const out = await adminSuspendApp({ app, suspended, configPath: opts.config });
+          console.log(`${out.owner}/${out.slug}: ${out.status}`);
+        }),
+      );
+  }
+  const invite = admin.command("invite").description("Who may create an account (besides OPERATOR_EMAILS and shared-to emails)");
+  cfg(invite.command("add").description("Invite an email").argument("<email>")).action(
+    handleErrors(async (email: string, opts: { config: string }) => {
+      const out = await adminInviteAdd({ email, configPath: opts.config });
+      console.log(out.created ? `Invited ${out.email}` : `${out.email} was already invited`);
+    }),
+  );
+  cfg(invite.command("rm").description("Remove an invite (existing accounts are kept; suspend them to cut access)").argument("<email>")).action(
+    handleErrors(async (email: string, opts: { config: string }) => {
+      const out = await adminInviteRemove({ email, configPath: opts.config });
+      console.log(out.removed ? `Removed invite for ${out.email}` : `${out.email} had no invite`);
+    }),
+  );
+  cfg(invite.command("ls").description("List invites")).action(
+    handleErrors(async (opts: { config: string }) => {
+      for (const i of await adminInvites({ configPath: opts.config })) {
+        console.log(`${i.email}\t${i.invited_by ?? "-"}\t${i.created_at}`);
+      }
+    }),
+  );
+  cfg(admin.command("audit").description("Recent audit events, newest first"))
+    .option("-n, --limit <n>", "How many (1-500)", "50")
+    .option("--app <app>", "Only this app (id or <owner-handle>/<slug>)")
+    .action(
+      handleErrors(async (opts: { config: string; limit: string; app?: string }) => {
+        const events = await adminAudit({
+          configPath: opts.config,
+          limit: Number(opts.limit),
+          ...(opts.app ? { app: opts.app } : {}),
+        });
+        for (const e of events) {
+          console.log(`${e.at}\t${e.action}\t${e.actor ?? "system"}\t${e.app_id ?? "-"}\t${JSON.stringify(e.metadata)}`);
         }
       }),
     );

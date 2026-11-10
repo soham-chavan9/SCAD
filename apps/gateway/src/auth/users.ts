@@ -3,6 +3,7 @@ import { isHandle } from "@scad/shared";
 import { schema } from "@scad/control-plane";
 import type { Db } from "@scad/control-plane";
 import type { GithubProfile } from "./identity.js";
+import { NotInvitedError } from "./signup.js";
 
 type Database = Db["db"];
 
@@ -23,9 +24,15 @@ export function handleFromGithubLogin(login: string): string {
   return handle;
 }
 
+/**
+ * Find or create the account for a GitHub sign-in. Existing accounts (by
+ * GitHub id or email) always sign in; a new account is created only when
+ * `mayCreate` allows the email (invite allowlist, T2.6), else NotInvitedError.
+ */
 export async function upsertGithubUser(
   db: Database,
   profile: GithubProfile,
+  mayCreate: (email: string) => Promise<boolean> = async () => true,
 ): Promise<GatewayUser> {
   const handle = handleFromGithubLogin(profile.login);
 
@@ -54,6 +61,15 @@ export async function upsertGithubUser(
       displayName: updated.displayName,
       status: updated.status,
     };
+  }
+
+  const byEmailFirst = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.email, profile.email))
+    .limit(1);
+  if (!byEmailFirst[0] && !(await mayCreate(profile.email))) {
+    throw new NotInvitedError();
   }
 
   const byHandle = await db

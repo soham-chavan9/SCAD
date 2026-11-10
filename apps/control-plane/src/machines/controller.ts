@@ -72,6 +72,9 @@ export class MachineController {
   }
 
   async #doRedeploy(appId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+    const [app] = await this.#db.select({ status: apps.status }).from(apps).where(eq(apps.id, appId)).limit(1);
+    // A suspended app stays stopped; the new env applies once it is lifted (T2.6).
+    if (!app || app.status === "suspended" || app.status === "deleted") return false;
     const [release] = await this.#db
       .select({ imageRef: releases.imageRef, manifest: releases.manifest })
       .from(releases)

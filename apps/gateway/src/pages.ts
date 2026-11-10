@@ -33,6 +33,14 @@ export function wakingPage(failed = false): string {
 </html>`;
 }
 
+/** Sign-up refused by the invite allowlist (T2.6). */
+export function notInvitedPage(): string {
+  return htmlPage(
+    "Not invited",
+    `<h1>You're not invited yet</h1><p>This SCAD instance is invite-only. Ask the person who shared an app with you, or an operator, to invite your email address, then sign in again.</p>`,
+  );
+}
+
 export function badCallbackPage(message: string): string {
   return htmlPage("Sign-in failed", `<h1>Sign-in failed</h1><p>${escapeHtml(message)}</p>`);
 }

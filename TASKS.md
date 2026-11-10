@@ -61,7 +61,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
     - Docker build exposure: **report only** (network mode, user, build-args, mounts, daemon; probe reachability from a `RUN` step). Do not change build network without asking.
     - Real (not mocked) INV1 / INV2 / INV6 / INV11 tests; `manifest.start` passed as argv array (never host-shell interpolated).
     - `/internal/resolve` returns manifest port (not hardcoded 8080).
-  - TODO (before gateway is reachable outside localhost): gate GitHub sign-in with an invite allowlist, and fix `OPERATOR_EMAILS` scope (who may sign in vs who is operator).
+  - Done in T2.6: GitHub sign-in is gated by the invite allowlist; `OPERATOR_EMAILS` are the operators.
   - Done when:
     - [x] PR #10 audit listed in PR body / internal note
     - [x] Smoke default path has no sudo; `--vm-only` refuses on macOS
@@ -85,7 +85,7 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
     - [x] `examples/*` build with `--network=none` (echo-identity no longer runs `npm install`)
     - [x] README + docs updated
 
-**Warning:** GitHub sign-in creates an account for anyone with a GitHub account. `OPERATOR_EMAILS` gates only device-code approval (`POST /v1/auth/device/approve`), not GitHub sign-in. Fix that before the gateway is reachable outside localhost.
+**Resolved in T2.6:** sign-up is invite-only. Only `OPERATOR_EMAILS`, emails an app was shared to, and the operator's invite list (`scad admin invite add|rm|ls`) may create an account by GitHub or magic link; anyone else gets a "not invited" page and no account row. `OPERATOR_EMAILS` are also the operators (device-code approval and `/v1/admin`).
 
 **M0 exit:** publish a toy app, open it in the browser behind GitHub login, with a second GitHub account denied.
 
@@ -169,9 +169,10 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: fake-clock tests walk an app through warn, stop, grace, delete; viewing resets expiry; reaper flags a container with no DB row.
   - Tests: `apps/control-plane/src/lifecycle.integration.test.ts`, `packages/runtime-docker/src/inventory.test.ts`. Docs: `docs/lifecycle.md`. Publishing now sets `expires_at` (it was never set before). The reaper flags orphans and marks missing machines; it does not delete Docker resources on its own. Requests are counted per debounced gateway touch.
 
-- [ ] **T2.6 Operator controls and audit**
+- [x] **T2.6 Operator controls and audit**
   - Depends: T1.2. Files: admin routes, CLI `scad admin ...`, audit writer.
   - Done when: suspending an app or user blocks the gateway within 5 seconds (INV9); every publish, share, unshare, suspend, delete writes an `audit_events` row; non-operators get 403.
+  - Tests: `apps/control-plane/src/admin.integration.test.ts`, `apps/gateway/src/operator-controls.integration.test.ts` (INV9 with a cached resolver, open WebSocket closed, invite allowlist), `packages/cli/src/admin.test.ts`. Docs: `docs/operator.md`, `docs/sign-in.md`. The gateway ACL now reads app and owner status fresh per request (the 30 s resolve cache no longer delays a suspend); open WebSockets re-check every 2 s. Includes the invite allowlist (human decision, Nov 8): `invites` table (migration 0007), `scad admin invite add|rm|ls`. Adds `/v1/admin` users, unsuspend, invites, and audit routes to §8.
 
 - [ ] **T2.7 Usage and cost visibility**
   - Depends: T2.5. Done when: `scad admin usage` and a minimal operator page show per-app requests, unique viewers, last viewed, running hours, volume size.

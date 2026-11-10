@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { errorEnvelopeSchema } from "@scad/shared";
@@ -6,7 +6,7 @@ import type { Db } from "../db/client.js";
 import { apps, machines, releases } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
 import { lockApp, type Tx } from "../lifecycle/app-lock.js";
-import { CANCELLED_BY_DELETE } from "../lifecycle/delete.js";
+import { CANCELLED_BY_DELETE, CANCELLED_BY_SUSPEND } from "../lifecycle/delete.js";
 import type { MachineController } from "../machines/controller.js";
 import {
   appendBuildLog,
@@ -51,11 +51,11 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
 
         const [appRow] = await opts.db.select().from(apps).where(eq(apps.id, release.appId)).limit(1);
         if (!appRow) continue;
-        if (appRow.status === "deleted") {
-          // Never build for a deleted app (a delete normally cancels these already).
+        if (appRow.status === "deleted" || appRow.status === "suspended") {
+          // Never build for a deleted or suspended app (a delete normally cancels these already).
           await opts.db
             .update(releases)
-            .set({ status: "failed", error: CANCELLED_BY_DELETE })
+            .set({ status: "failed", error: appRow.status === "deleted" ? CANCELLED_BY_DELETE : CANCELLED_BY_SUSPEND })
             .where(and(eq(releases.id, release.id), eq(releases.status, "building")));
           continue;
         }
@@ -120,10 +120,14 @@ export const internalBuildsRoutes: FastifyPluginAsync<InternalBuildsOpts> = asyn
           return { discarded: true, teardown: body.data.ok && appRow?.status === "deleted" };
         }
         await applyCompletion(tx, opts.paths, release, body.data);
-        return { discarded: false, teardown: false };
+        // Suspended mid-build: keep the release, but the app must not run (T2.6).
+        return { discarded: false, teardown: false, stop: body.data.ok && appRow.status === "suspended" };
       });
       if (outcome.teardown && opts.machines) {
         await opts.machines.removeApp(found.appId);
+      }
+      if ("stop" in outcome && outcome.stop && opts.machines) {
+        await opts.machines.stop(found.appId);
       }
       return outcome.discarded ? { ok: true, discarded: true } : { ok: true };
     },
@@ -162,7 +166,10 @@ async function applyCompletion(
       })
       .where(eq(releases.id, release.id));
 
-    await tx.update(apps).set({ status: "running" }).where(eq(apps.id, release.appId));
+    await tx
+      .update(apps)
+      .set({ status: "running" })
+      .where(and(eq(apps.id, release.appId), ne(apps.status, "suspended")));
 
     await tx
       .insert(machines)
@@ -207,6 +214,6 @@ async function applyCompletion(
     await tx
       .update(apps)
       .set({ status: ready[0] ? "running" : "stopped" })
-      .where(eq(apps.id, release.appId));
+      .where(and(eq(apps.id, release.appId), ne(apps.status, "suspended")));
   }
 }

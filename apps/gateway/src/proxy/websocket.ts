@@ -19,7 +19,12 @@ export type WsProxyOpts = {
   keys: IdentityKeyMaterial;
   wake?: WakeCoordinator;
   wakeBudgetMs?: number;
+  /** How often open WebSockets re-check the ACL (default 2 s). */
+  aclRecheckMs?: number;
 };
+
+/** Open WebSockets re-check access this often, so a suspend closes them within 5 s (INV9). */
+export const WS_ACL_RECHECK_MS = 2_000;
 
 /** Platform paths must never be upgraded into the app container. */
 export function isPlatformUpgradePath(url: string | undefined): boolean {
@@ -46,6 +51,14 @@ function parseCookies(header: string | undefined): Record<string, string> {
  */
 export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): void {
   const proxy = httpProxy.createProxyServer({ ws: true, xfwd: false });
+
+  // Piping does not pass a destroy on: when the gateway drops the viewer's
+  // socket (ACL re-check, INV9) or the viewer goes away, drop the app side too.
+  proxy.on("proxyReqWs", (proxyReq, _req, socket) => {
+    proxyReq.once("upgrade", (_res, appSocket: Duplex) => {
+      socket.once("close", () => appSocket.destroy());
+    });
+  });
 
   proxy.on("error", (_err, _req, socket) => {
     if ("destroy" in socket && typeof socket.destroy === "function") {
@@ -111,6 +124,17 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
           target: `http://${target.host}:${target.port}`,
           headers,
         });
+        // Open sockets outlive the upgrade check: re-check the ACL so an
+        // operator suspend or an unshare also closes them (INV9: within 5 s).
+        const recheck = setInterval(() => {
+          canViewApp(opts.db, resolved, user)
+            .then((ok) => {
+              if (!ok) socket.destroy();
+            })
+            .catch(() => socket.destroy());
+        }, opts.aclRecheckMs ?? WS_ACL_RECHECK_MS);
+        recheck.unref();
+        socket.once("close", () => clearInterval(recheck));
       } catch {
         socket.destroy();
       }

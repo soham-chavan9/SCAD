@@ -16,6 +16,14 @@ export const CANCELLED_BY_DELETE: ErrorEnvelope = {
   details: {},
 };
 
+/** Stored on releases claimed while their app was suspended by an operator (T2.6). */
+export const CANCELLED_BY_SUSPEND: ErrorEnvelope = {
+  code: "APP_SUSPENDED",
+  message: "The app was suspended by an operator before this release was built",
+  hint: "Ask an operator to lift the suspension, then publish again.",
+  details: {},
+};
+
 /**
  * Delete an app: cancel its outstanding builds, remove its container, network,
  * and /data volume, and purge its data (shares, env, logs). Runs under the
