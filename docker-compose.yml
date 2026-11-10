@@ -68,8 +68,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       EGRESS_POLICY_DIR: /policy
-      # Operator approval (comma list; `*.example.com` patterns; `*` = any domain an app declares). Empty = deny all.
-      EGRESS_ALLOWED_DOMAINS: ${EGRESS_ALLOWED_DOMAINS:-}
+      # `*` (default) = any domain an app declares; a comma list (`*.example.com` patterns) narrows it; `none` = deny all.
+      EGRESS_ALLOWED_DOMAINS: ${EGRESS_ALLOWED_DOMAINS:-*}
     volumes:
       - ${SCAD_EGRESS_POLICY_DIR:-~/.scad/egress-policy}:/policy:ro
 

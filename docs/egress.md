@@ -7,9 +7,20 @@ Apps have **no route to the internet** (INV2). Each app runs on its own
 1. listed in the app's `scad.json` `"egress"` (lowercase public hostnames like
    `api.github.com`, or `*.googleapis.com` for subdomains; no IPs, ports, or
    schemes; max 50), **and**
-2. approved by the operator in `EGRESS_ALLOWED_DOMAINS` (comma list with the
-   same patterns; `*` approves any declared domain). **Empty means every
-   request is refused.**
+2. allowed by the operator's `EGRESS_ALLOWED_DOMAINS`.
+
+## Operator policy: `EGRESS_ALLOWED_DOMAINS`
+
+| Value | Meaning |
+|---|---|
+| `*` (default; unset or empty means the same) | Any public domain an app declares works. No separate approval step (human decision, Nov 9). |
+| `api.github.com,*.googleapis.com` | Narrow: an app's declared domain works only if it also matches this list. |
+| `none` | Refuse all egress, whatever apps declare. `none` must be used alone. |
+
+Whatever the value, undeclared domains are refused, and a declared domain is
+refused if **any** of its addresses is private, loopback, link-local, metadata,
+or reserved (below). The proxy logs the active policy at startup, e.g.
+`egress policy: apps may reach any domain an app declares in scad.json ...`.
 
 ## How an app uses it
 
@@ -23,7 +34,7 @@ on recent Node releases set `NODE_USE_ENV_PROXY=1`.
 - Plain HTTP: absolute-form requests to port 80.
 - Anything else gets `403` with a plain-text reason, e.g. `SCAD egress refused
   github.com: host not in the app's scad.json egress list or not approved by
-  the operator.`
+  the operator. Declare the domain in scad.json "egress" ...`
 
 ## What the proxy enforces
 
@@ -58,19 +69,23 @@ it. In that case, set `SCAD_EGRESS_POLICY_DIR` to a path outside your home.
 If the proxy can't read the directory, it logs `egress policy dir ... is
 unreadable` and refuses all egress.
 
-Approve domains in `.env`, then `docker compose up -d egress-proxy` to apply:
+The default (`*`) needs no setup. To narrow or close egress, set it in `.env`,
+then `docker compose up -d egress-proxy` to apply:
 
 ```
-EGRESS_ALLOWED_DOMAINS=api.github.com,*.googleapis.com
+EGRESS_ALLOWED_DOMAINS=api.github.com,*.googleapis.com   # or: none
 ```
 
 ## Tests
 
 - `apps/egress-proxy/src/proxy.test.ts`: blocked ranges, domain matching,
-  CONNECT and HTTP forwarding, DNS rebinding with a fake resolver, unknown source.
+  CONNECT and HTTP forwarding, DNS rebinding with a fake resolver, unknown
+  source, and the operator policy (T2.1b): with the default a declared public
+  domain works, an undeclared one and a declared one resolving to a private IP
+  are refused, `none` refuses everything, and a list narrows it.
 - `tests/adversarial/src/inv2-egress-proxy.test.ts` (real Docker): through the
-  proxy an app can't reach metadata, the host, the control plane, the Docker
+  proxy (running with the default policy) an app can't reach metadata, the host, the control plane, the Docker
   API port, another app, or an undeclared domain; an app with no `egress` gets
-  nothing; direct connections still go nowhere; an allowed domain works; and
+  nothing; direct connections still go nowhere; a declared domain works; and
   `localtest.me` (public DNS → 127.0.0.1) is refused. The last two need
   internet on the test machine and are skipped without it.
