@@ -19,7 +19,7 @@
       "path": "../../packages/runtime-conformance"
     },
     {
-      "path": "../../packages/runtime-docker"
+      "path": "../../packages/runtime-factory"
     }
   ]
 }

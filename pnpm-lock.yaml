@@ -75,9 +75,9 @@ importers:
       '@scad/runtime-conformance':
         specifier: workspace:*
         version: link:../../packages/runtime-conformance
-      '@scad/runtime-docker':
+      '@scad/runtime-factory':
         specifier: workspace:*
-        version: link:../../packages/runtime-docker
+        version: link:../../packages/runtime-factory
       '@scad/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -112,6 +112,9 @@ importers:
       '@scad/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@scad/runtime-docker':
+        specifier: workspace:*
+        version: link:../../packages/runtime-docker
       '@types/dockerode':
         specifier: 4.0.2
         version: 4.0.2
@@ -256,6 +259,15 @@ importers:
       '@types/dockerode':
         specifier: 4.0.2
         version: 4.0.2
+
+  packages/runtime-factory:
+    dependencies:
+      '@scad/runtime-conformance':
+        specifier: workspace:*
+        version: link:../runtime-conformance
+      '@scad/runtime-docker':
+        specifier: workspace:*
+        version: link:../runtime-docker
 
   packages/runtime-fly: {}
 

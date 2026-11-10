@@ -10,6 +10,7 @@
     { "path": "packages/mcp-server" },
     { "path": "packages/api-client" },
     { "path": "packages/runtime-docker" },
+    { "path": "packages/runtime-factory" },
     { "path": "packages/runtime-fly" },
     { "path": "packages/runtime-conformance" },
     { "path": "tests/e2e" },

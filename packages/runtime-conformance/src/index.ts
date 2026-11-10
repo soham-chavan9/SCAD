@@ -4,7 +4,9 @@ export type {
   DeploySpec,
   MachineRef,
   MachineStatus,
+  ManagedRuntime,
   Reachable,
+  RuntimeCapabilities,
   RuntimeProvider,
 } from "./types.js";
 

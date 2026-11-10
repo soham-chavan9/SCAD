@@ -1,4 +1,4 @@
-import { DockerRuntimeProvider } from "@scad/runtime-docker";
+import { createRuntimeProvider } from "@scad/runtime-factory";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,8 +29,9 @@ async function main(): Promise<void> {
     console.warn("MASTER_KEY is not set: `scad env` is disabled until it is.");
   }
 
-  // Composition root: the only place the control plane picks a runtime driver.
-  const runtime = new DockerRuntimeProvider();
+  // The driver comes from SCAD_RUNTIME (default docker) via the provider-neutral
+  // factory; the control plane never imports a provider package itself.
+  const runtime = createRuntimeProvider();
   const logError = (what: string) => (err: unknown) =>
     console.error(`${what} failed:`, err instanceof Error ? err.message : err);
   // Runtime logs go into SCAD's own store (T1.7b); secret values are redacted first.
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   const lifecycle = new LifecycleJobs({
     db,
     machines,
-    inventory: runtime,
+    ...(runtime.listApps ? { inventory: { listApps: () => runtime.listApps!() } } : {}),
     baseDomain,
     mailer: smtpUrl
       ? new SmtpMailer({ smtpUrl, from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain) })
