@@ -380,13 +380,13 @@ was running and `gh` was authenticated. `dev` already had all of T0.9–T2.5
 | T2.6 Operator controls + invite allowlist | done, merged | `task/t2-6-operator-controls` | [#37](https://github.com/soham-chavan9/small-cloud/pull/37) → `dev` | "Not invited" page not clicked in a browser (covered by inject tests) |
 | T2.7 Usage and cost visibility | done | `task/t2-7-usage` | [#38](https://github.com/soham-chavan9/small-cloud/pull/38) merged into `task/t2-6-operator-controls`, **not `dev`**; [#39](https://github.com/soham-chavan9/small-cloud/pull/39) → `dev` lands it | Running hours before migration 0008 were never recorded |
 | T2.8 Adversarial suite | done | `task/t2-8-adversarial` | [#40](https://github.com/soham-chavan9/small-cloud/pull/40) → `dev` | — |
-| T2.9 Runbook and README | done | `task/t2-9-runbook` | T2.9 PR → `dev` | Fresh-clone timing used warm Docker/pnpm caches |
+| T2.9 Runbook and README | done | `task/t2-9-runbook` | [#41](https://github.com/soham-chavan9/small-cloud/pull/41) → `dev` | Fresh-clone timing used warm Docker/pnpm caches |
 
 **PR bases.** This repo doesn't delete branches on merge, so GitHub never
 retargets a stacked PR. #38 had base `task/t2-6-operator-controls` and merged
 into that branch 25 s after #37 merged, so T2.7 never reached `dev`. #39
 (`task/t2-7-usage` → `dev`) lands it. Every other Day 5 PR targets `dev`
-directly. **Merge in order: #39, #40, then T2.9.** Each later branch contains
+directly. **Merge in order: #39, #40, then #41.** Each later branch contains
 the earlier ones, so until its parent merges a PR also shows the parent's
 commits. No open PR has a base other than `dev`.
 
@@ -466,7 +466,7 @@ commits. No open PR has a base other than `dev`.
   only drops columns. CI on #39 caught it. The fix (accept column-only down
   scripts) was pushed to #39 and cherry-picked onto T2.8. CI now passes on
   #39 and #40, including the new Docker adversarial suite on Linux.
-- T2.9 full gate: see the T2.9 PR.
+- T2.9 (top of the stack, everything): 86 files, 490 tests; adversarial 63; e2e 3.
 - **Fresh clone, README only** (second run, final code): clone → install →
   `setup-env` → `compose up` → migrate → start both services → login →
   publish → sign in by emailed link in a browser → app loads: **89 s**. Docker
@@ -492,7 +492,7 @@ M2 exit: *a friend publishes an app on their own, shares it, and the
 adversarial suite is green.*
 
 - [x] All M2 tasks (T2.1–T2.9) are done with acceptance passing. T2.7–T2.9 are
-  in PRs #39, #40, and T2.9's, waiting to merge.
+  in PRs #39, #40, and #41, waiting to merge.
 - [x] Adversarial suite green: locally, and in CI on #40.
 - [x] The operator can suspend any app or user and see usage (v1 definition of
   done).
@@ -532,7 +532,7 @@ started.
 
 ## Blocked: needs human
 
-1. **Merges.** Merge #39 (T2.7), then #40 (T2.8), then the T2.9 PR. All
+1. **Merges.** Merge #39 (T2.7), then #40 (T2.8), then #41 (T2.9). All
    target `dev`.
 2. **M2 exit check.** A friend publishes and shares an app unaided (see M2
    exit status), and the T0.8 GitHub second-account 403 browser check.
