@@ -136,6 +136,10 @@ run `bash scripts/setup-env.sh you@example.com`.
 - `docker compose ps`: gateway, egress proxy, Postgres, and Mailpit are running.
 - `scad admin audit -n 20`: recent changes. `runtime.orphan` rows mean Docker
   holds resources for an app the database doesn't know (`docs/lifecycle.md`).
+- After `docker compose up -d gateway` (or `egress-proxy`) the new container is
+  on no app network. The first request to each app re-attaches it on wake, and
+  the 5-minute sweep re-attaches it for every running app, so expect at most
+  one "Starting…" page per app.
 - Docker refusing to create networks ("all predefined address pools have been
   fully subnetted") means leaked `scad-net-*` networks from crashed test runs:
   `docker network ls --format '{{.Name}}' | grep '^scad-net-' | xargs -n1 docker network rm 2>/dev/null`.
