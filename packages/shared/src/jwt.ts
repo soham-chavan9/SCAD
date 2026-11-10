@@ -1,4 +1,8 @@
 import {
+  calculateJwkThumbprint,
+  createLocalJWKSet,
+  decodeProtectedHeader,
+  exportJWK,
   exportPKCS8,
   exportSPKI,
   generateKeyPair,
@@ -7,6 +11,8 @@ import {
   jwtVerify,
   SignJWT,
   type CryptoKey,
+  type JWK,
+  type JWTPayload,
 } from "jose";
 
 /** Default identity JWT lifetime (AGENTS §10). */
@@ -132,7 +138,36 @@ export async function verifyIdentityJwt(
     audience: expected.audience,
     algorithms: ["EdDSA"],
   });
+  return toVerifiedIdentity(payload);
+}
 
+/**
+ * Verify against a JWKS document (current + previous keys during a rotation,
+ * T1.9). The token must name its key with `kid`; an unknown kid is rejected.
+ */
+export async function verifyIdentityJwtWithJwks(
+  token: string,
+  jwks: { keys: JWK[] | Record<string, unknown>[] },
+  expected: { issuer: string; audience: string },
+): Promise<VerifiedIdentity> {
+  const header = decodeProtectedHeader(token);
+  if (typeof header.kid !== "string" || header.kid.length === 0) {
+    throw new Error("identity JWT has no kid header");
+  }
+  const { payload } = await jwtVerify(token, createLocalJWKSet({ keys: jwks.keys as JWK[] }), {
+    issuer: expected.issuer,
+    audience: expected.audience,
+    algorithms: ["EdDSA"],
+  });
+  return toVerifiedIdentity(payload);
+}
+
+/** RFC 7638 thumbprint of a public key: the default `kid` for identity keys. */
+export async function identityKeyId(publicKey: CryptoKey): Promise<string> {
+  return calculateJwkThumbprint(await exportJWK(publicKey), "sha256");
+}
+
+function toVerifiedIdentity(payload: JWTPayload): VerifiedIdentity {
   const email = payload["email"];
   const name = payload["name"];
   if (typeof email !== "string" || typeof name !== "string") {

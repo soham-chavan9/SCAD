@@ -30,7 +30,7 @@ import {
 import { randomToken } from "../crypto.js";
 import { authHost } from "../host.js";
 import { safeLocalReturnPath } from "../return-path.js";
-import { jwksResponse } from "../identity/headers.js";
+import { JWKS_CACHE_SECONDS, jwksResponse } from "../identity/headers.js";
 import type { IdentityKeyMaterial } from "../identity/keys.js";
 import type { Mailer } from "../mail/mailer.js";
 import {
@@ -128,7 +128,10 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
     return token;
   }
 
-  app.get("/.well-known/jwks.json", async () => jwksResponse(opts.keys));
+  app.get("/.well-known/jwks.json", async (_request, reply) => {
+    reply.header("cache-control", `public, max-age=${JWKS_CACHE_SECONDS}`);
+    return jwksResponse(opts.keys);
+  });
 
   app.get("/login", async (request, reply) => {
     const query = request.query as { return_to?: string };

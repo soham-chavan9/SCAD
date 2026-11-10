@@ -134,8 +134,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: a scripted agent session publishes `examples/hello-node` and shares it using only MCP tools; a forced build error gives the agent enough in `hint` + `log_tail` to fix and retry successfully.
   - Tests: `tests/e2e/src/mcp-agent.test.ts` (real Docker), `packages/mcp-server/src/server.test.ts`, `apps/builder/src/build-hint.test.ts`, `apps/control-plane/src/delete-app.integration.test.ts`. Docs: `docs/mcp.md`. Also lands §8 `DELETE /v1/apps/:id` (needed by `delete_app`) and a network-aware `BUILD_FAILED` hint.
 
-- [ ] **T1.9 Identity token hardening**
+- [x] **T1.9 Identity token hardening**
   - Depends: T0.7. Done when: JWT rotation via `kid` supported; key rotation test passes; sample verifying snippet in `docs/identity.md`.
+  - Tests: `apps/gateway/src/identity/rotation.test.ts`. Docs: `docs/identity.md`. `kid` is the key's RFC 7638 thumbprint; `JWT_PREVIOUS_PUBLIC_KEY` keeps retired keys in the JWKS during a rotation; JWKS is served with `Cache-Control: public, max-age=300`; `examples/echo-identity` refetches the JWKS once on an unknown kid.
 
 **M1 exit:** one friend, on their own machine's browser, signs in with magic link or GitHub and uses an app you published.
 
