@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
+import type { RuntimeProvider } from "@scad/runtime-conformance";
 import type { Db } from "./db/client.js";
 import { DeviceStore } from "./device-store.js";
 import { errorHandler } from "./errors.js";
+import { MachineController } from "./machines/controller.js";
 import { authPlugin } from "./plugins/auth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
@@ -30,6 +32,12 @@ export type BuildAppOptions = {
   internalSecret?: string;
   devices?: DeviceStore;
   paths?: DataPaths;
+  /** Runtime used to wake and idle-stop apps (T1.4). Wake routes 503 without it. */
+  runtime?: RuntimeProvider;
+  /** Pre-built controller (server.ts shares it with the idle stopper). */
+  machines?: MachineController;
+  /** Clock override (tests). */
+  now?: () => Date;
 };
 
 export async function buildApp(opts: BuildAppOptions) {
@@ -86,11 +94,22 @@ export async function buildApp(opts: BuildAppOptions) {
     internalToken,
   });
 
+  const machines =
+    opts.machines ??
+    (opts.runtime
+      ? new MachineController({
+          db: opts.db,
+          runtime: opts.runtime,
+          ...(opts.now ? { now: opts.now } : {}),
+        })
+      : undefined);
+
   if (opts.internalSecret) {
     await app.register(internalRoutes, {
       db: opts.db,
       internalSecret: opts.internalSecret,
       baseDomain,
+      ...(machines ? { machines } : {}),
     });
   }
 

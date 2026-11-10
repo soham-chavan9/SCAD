@@ -11,6 +11,7 @@ import { attachWebSocketProxy } from "./proxy/websocket.js";
 import type { AppResolver } from "./resolve.js";
 import { appHostRoutes } from "./routes/app-host.js";
 import { authHostRoutes, type AuthHostOpts } from "./routes/auth-host.js";
+import { WakeCoordinator, type MachineClient } from "./wake.js";
 
 export type BuildGatewayOptions = {
   db: Db["db"];
@@ -23,6 +24,12 @@ export type BuildGatewayOptions = {
   mailer: Mailer;
   /** Clock override (tests). */
   now?: () => Date;
+  /** Control-plane wake/touch client (T1.4). Omit to proxy without waking. */
+  machines?: MachineClient;
+  /** Max hold for non-HTML requests while an app wakes (default 15 s, §14). */
+  wakeBudgetMs?: number;
+  /** Hold for HTML navigations before showing the wait page (default 3 s). */
+  htmlHoldMs?: number;
 };
 
 export async function buildGateway(opts: BuildGatewayOptions) {
@@ -31,6 +38,17 @@ export async function buildGateway(opts: BuildGatewayOptions) {
   await app.register(replyFrom);
 
   const authHostname = authHost(opts.baseDomain);
+  const wake = opts.machines
+    ? new WakeCoordinator({
+        client: opts.machines,
+        ...(opts.wakeBudgetMs !== undefined ? { readyTimeoutMs: opts.wakeBudgetMs } : {}),
+      })
+    : undefined;
+  const wakeOpts = {
+    ...(wake ? { wake } : {}),
+    ...(opts.wakeBudgetMs !== undefined ? { wakeBudgetMs: opts.wakeBudgetMs } : {}),
+    ...(opts.htmlHoldMs !== undefined ? { htmlHoldMs: opts.htmlHoldMs } : {}),
+  };
 
   await app.register(
     async (scope) => {
@@ -60,6 +78,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
       baseDomain: opts.baseDomain,
       resolver: opts.resolver,
       keys: opts.keys,
+      ...wakeOpts,
     });
   });
 
@@ -68,6 +87,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
     baseDomain: opts.baseDomain,
     resolver: opts.resolver,
     keys: opts.keys,
+    ...wakeOpts,
   });
 
   return app;

@@ -5,15 +5,21 @@ import { applyManifestDefaults, isHandle, isSlug, type ManifestInput } from "@sc
 import type { Db } from "../db/client.js";
 import { apps, releases, users } from "../db/schema.js";
 import { ApiError, unauthenticated, validationFailed } from "../errors.js";
+import type { MachineController } from "../machines/controller.js";
 
 const resolveBody = z.object({
   host: z.string().min(1),
 });
 
+const wakeBody = z.object({ appId: z.uuid() });
+const touchBody = z.object({ appId: z.uuid(), userId: z.uuid() });
+
 export type InternalRoutesOpts = {
   db: Db["db"];
   internalSecret: string;
   baseDomain: string;
+  /** Present when the control plane has a RuntimeProvider (wake / touch, T1.4). */
+  machines?: MachineController;
 };
 
 function parseAppHost(
@@ -125,6 +131,31 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
       };
     },
   );
+
+  /** §9 step 6: start a stopped app. Concurrent calls share one start. */
+  app.post("/internal/wake", { config: { internal: true } }, async (request) => {
+    const parsed = wakeBody.safeParse(request.body);
+    if (!parsed.success) {
+      throw validationFailed("appId (uuid) is required");
+    }
+    if (!opts.machines) {
+      throw new ApiError(503, "INTERNAL", "No runtime configured", "Start the control plane with a runtime.");
+    }
+    return opts.machines.wake(parsed.data.appId);
+  });
+
+  /** §9 step 8: record traffic so the idle stopper leaves the app running. */
+  app.post("/internal/touch", { config: { internal: true } }, async (request) => {
+    const parsed = touchBody.safeParse(request.body);
+    if (!parsed.success) {
+      throw validationFailed("appId and userId (uuid) are required");
+    }
+    if (!opts.machines) {
+      throw new ApiError(503, "INTERNAL", "No runtime configured", "Start the control plane with a runtime.");
+    }
+    await opts.machines.touch(parsed.data.appId);
+    return { ok: true };
+  });
 };
 
 export { parseAppHost, portFromManifest };

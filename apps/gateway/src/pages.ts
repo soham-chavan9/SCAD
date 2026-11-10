@@ -21,6 +21,18 @@ export function appReadyPage(slug: string, ownerHandle: string): string {
   );
 }
 
+/** Self-retrying page shown while a stopped app starts (§9 step 6). Reloads the same URL. */
+export function wakingPage(failed = false): string {
+  const message = failed
+    ? "The app is taking longer than usual to start. This page will keep trying."
+    : "Starting the app. This page reloads by itself in a moment.";
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta http-equiv="refresh" content="2"/><title>Starting…</title></head>
+<body><h1>Starting…</h1><p>${message}</p></body>
+</html>`;
+}
+
 export function badCallbackPage(message: string): string {
   return htmlPage("Sign-in failed", `<h1>Sign-in failed</h1><p>${escapeHtml(message)}</p>`);
 }
