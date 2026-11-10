@@ -6,6 +6,7 @@ import type { Db } from "../db/client.js";
 import { apps, auditEvents, invites, sessions, users } from "../db/schema.js";
 import { ApiError, validationFailed } from "../errors.js";
 import { lockApp } from "../lifecycle/app-lock.js";
+import { deleteApp } from "../lifecycle/delete.js";
 import type { MachineController } from "../machines/controller.js";
 import type { AuthUser } from "../plugins/auth.js";
 
@@ -218,6 +219,25 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOpts> = async (app, opts
       .where(and(eq(apps.id, found.id), eq(apps.status, "suspended")));
     await audit(request.user.id, "app.unsuspend", found.id, {});
     return { app: { id: found.id, slug: found.slug, owner: found.handle, status: "stopped" } };
+  });
+
+  /**
+   * Delete any app (T2.9 runbook: removing a user's data). Same as an owner
+   * delete: container, network, /data volume, env, logs, and shares are
+   * removed; the app row stays as `deleted` for the audit trail.
+   */
+  app.delete<{ Params: { id: string } }>("/v1/admin/apps/:id", async (request) => {
+    const found = await findApp(request.params.id);
+    if (!opts.machines) {
+      throw new ApiError(
+        503,
+        "INTERNAL",
+        "Deleting apps is not available on this instance",
+        "Start the control plane with a runtime.",
+      );
+    }
+    await deleteApp(db, opts.machines, found.id, { actorId: request.user.id, reason: "operator" });
+    return { app: { id: found.id, slug: found.slug, owner: found.handle, status: "deleted" } };
   });
 
   app.get("/v1/admin/invites", async () => {

@@ -16,7 +16,8 @@ import { WakeCoordinator, type MachineClient } from "./wake.js";
 export type BuildGatewayOptions = {
   db: Db["db"];
   baseDomain: string;
-  identity: IdentityProvider;
+  /** GitHub sign-in. `null` = not configured: only magic links are offered. */
+  identity: IdentityProvider | null;
   resolver: AppResolver;
   keys: IdentityKeyMaterial;
   allowDevLogin?: boolean;

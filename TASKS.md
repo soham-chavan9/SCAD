@@ -184,8 +184,9 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: every scenario has a named test mapped to its INV number and the suite is green in CI.
   - Tests: `tests/adversarial/src/hostile-apps.test.ts` (real Docker: `examples/adversarial/snoop`, `escape`, `cpu-hog`, `disk-filler`), `tests/adversarial/src/identity-and-sessions.test.ts` (INV3/4/5/10 against the real gateway and control plane), plus the existing INV2/INV6/INV8 files. Scenario to test to INV matrix: `tests/adversarial/README.md`. Fixed: a malformed session cookie returned `500` from the gateway (now treated as no session).
 
-- [ ] **T2.9 Runbook and README**
+- [x] **T2.9 Runbook and README**
   - Depends: all above. Done when: `docs/runbook.md` covers restore, key rotation, suspend/delete user data, disaster reset; a fresh clone runs end-to-end locally in under 15 minutes following README.
+  - Docs: `docs/runbook.md` (state inventory, backup, restore, rotation table, suspend and delete user data, disaster reset, health checks; the backup and restore commands were run against a scratch database and volume). README now starts with an end-to-end path; new `scripts/setup-env.sh` and `scripts/with-env.sh`. Adds operator `DELETE /v1/admin/apps/:id` (`scad admin delete-app`). A fresh clone followed the README to a signed-in app in a real browser in 89 s (warm Docker and pnpm caches). That run found and fixed three bugs: a relative `SCAD_DATA_DIR` split uploads between the control plane and builder; the gateway refused to start without GitHub OAuth (email sign-in now works alone); and a recreated gateway or egress proxy dropped off every app network until a redeploy (now re-attached on wake and by the 5-minute sweep). Tests: `apps/control-plane/src/storage.test.ts`, `apps/gateway/src/github-optional.test.ts`, `packages/runtime-docker/src/reconnect.test.ts`, delete case in `admin.integration.test.ts`.
 
 **M2 exit:** a friend publishes an app on their own, shares it, and the adversarial suite is green.
 

@@ -2,29 +2,66 @@
 
 Hosting layer for small software: publish an app, get a private URL, share it like a Google Doc. See [`AGENTS.md`](./AGENTS.md) for decisions and contracts, [`TASKS.md`](./TASKS.md) for the build plan.
 
-## Requirements
+## Run it end to end (about 15 minutes)
 
-- Node.js 22+
-- [pnpm](https://pnpm.io) 10+
-- Docker (Compose) for Postgres and Mailpit
-
-## Quick start
+You need Node.js 22 and pnpm 10 (`corepack enable` gives you pnpm), Docker
+Desktop (or Docker Engine) running, `openssl`, `python3`, and Chrome or
+Firefox (they resolve `*.localhost`; see Hostnames for Safari).
 
 ```bash
-cp .env.example .env
+git clone https://github.com/soham-chavan9/small-cloud.git && cd small-cloud
 pnpm install
-docker compose up -d
-pnpm lint && pnpm typecheck && pnpm test
+bash scripts/setup-env.sh you@example.com      # writes .env: you are the operator; secrets generated
+mkdir -p ~/.scad/egress-policy
+docker compose up -d --build                    # Postgres, Mailpit, gateway (:8080), egress proxy
+bash scripts/with-env.sh pnpm db:migrate
 ```
 
-Local services after `docker compose up -d`:
+Start the two host processes, each in its own terminal (they need the Docker socket):
 
-| Service  | Port | Notes                          |
-|----------|------|--------------------------------|
+```bash
+bash scripts/with-env.sh pnpm --filter @scad/control-plane start   # :4000
+```
+
+```bash
+bash scripts/with-env.sh pnpm --filter @scad/builder start
+```
+
+Then, in a third terminal, log in and publish the sample app:
+
+```bash
+bash scripts/with-env.sh pnpm exec tsx packages/cli/src/bin.ts login --approve-email you@example.com
+bash scripts/with-env.sh pnpm exec tsx packages/cli/src/bin.ts publish examples/hello-node
+```
+
+`publish` prints the app's URL, e.g. `http://hello-node.you.localhost:8080`.
+Open it, choose **Email me a sign-in link** with `you@example.com`, open the
+link from Mailpit at <http://localhost:8025>, press **Continue**, and the app
+loads. Share it with someone (`... share hello-node friend@example.com`) and
+they can sign in the same way. See your instance with `... admin usage`.
+
+`bash scripts/with-env.sh` loads `.env` for one command (values are parsed,
+never executed). GitHub sign-in needs a GitHub OAuth app: set
+`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` in `.env` with callback
+`http://auth.localhost:8080/oauth/github/callback`, then
+`docker compose up -d gateway`.
+
+To run the test suites instead: `pnpm lint && pnpm typecheck && pnpm test`
+(needs Docker and a `scad_test` database: `docker compose exec postgres createdb -U scad scad_test`,
+then `DATABASE_URL=postgres://scad:scad@localhost:5432/scad_test`), plus
+`pnpm test:adversarial` and `pnpm test:e2e`.
+
+Local services:
+
+| Service | Port | Notes |
+|---|---|---|
+| Gateway | 8080 | apps at `http://{slug}.{owner}.localhost:8080`, sign-in at `http://auth.localhost:8080` |
+| Control plane | 4000 | API, plus the operator usage page at `/admin` |
 | Postgres | 5432 | `postgres://scad:scad@localhost:5432/scad` |
-| Mailpit  | 8025 | SMTP UI (magic-link emails land here); SMTP on 1025 |
+| Mailpit | 8025 | sign-in emails land here (SMTP on 1025) |
 
-Control plane listens on `4000` on the host; gateway runs as the `scad-gateway` Compose service on `8080` (auth at `http://auth.localhost:8080`). Control plane + builder support `scad login` / `scad publish` (T0.5). The Docker runtime attaches that gateway container to each app network on deploy (T0.7).
+Operating it (backups, restore, key rotation, suspending and deleting users,
+disaster reset): [`docs/runbook.md`](docs/runbook.md).
 
 ### Hostnames
 
@@ -36,8 +73,8 @@ Chrome and Firefox resolve `*.localhost` to loopback. Safari may not — use dns
 apps/          control-plane, gateway, builder, egress-proxy
 packages/      shared, cli, mcp-server, api-client, runtime-*
 tests/         e2e, adversarial
-examples/      hello-node (more later)
-docs/          pointers to AGENTS.md / TASKS.md; more docs later
+examples/      hello-node, hello-python, hello-static, echo-identity, counter-sqlite, adversarial/*
+docs/          feature docs, runbook, build schedule (index: docs/README.md)
 ```
 
 ## Outbound network

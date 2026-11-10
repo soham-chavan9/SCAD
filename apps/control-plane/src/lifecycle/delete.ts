@@ -36,7 +36,7 @@ export async function deleteApp(
   db: Db["db"],
   machines: MachineController,
   appId: string,
-  audit: { actorId: string | null; reason: "owner" | "expired" },
+  audit: { actorId: string | null; reason: "owner" | "expired" | "operator" },
   stillEligible: (row: AppRow) => boolean = () => true,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {

@@ -23,6 +23,10 @@ const HOUR = 3_600_000;
 class UsageRuntime implements ManagedRuntime {
   state: MachineStatus = "running";
   volumes = new Map<string, number>();
+  reconnected: string[] = [];
+  async reconnect(m: MachineRef): Promise<void> {
+    this.reconnected.push(m.appId);
+  }
   async ensureApp(): Promise<void> {}
   async deploy(spec: DeploySpec): Promise<MachineRef> {
     return { appId: spec.appId, providerId: `p-${spec.appId}` };
@@ -210,5 +214,15 @@ describe.runIf(Boolean(databaseUrl))("usage and cost visibility (T2.7)", () => {
     const hash = createHash("sha256").update(script).digest("base64");
     expect(csp).toContain(`'sha256-${hash}'`);
     expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("wake and the 5-minute sweep re-attach the gateway and egress proxy (T2.9)", async () => {
+    runtime.reconnected = [];
+    await controller.stop(appId);
+    await controller.wake(appId);
+    expect(runtime.reconnected).toContain(appId);
+    runtime.reconnected = [];
+    await controller.enforceVolumeQuotas();
+    expect(runtime.reconnected).toContain(appId);
   });
 });

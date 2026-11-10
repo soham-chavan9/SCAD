@@ -222,6 +222,8 @@ export class MachineController {
       if (this.#ops.has(row.appId) || !row.providerId) continue;
       const ref = { appId: row.appId, providerId: row.providerId };
       const done = (async () => {
+        // Same sweep heals platform containers that were recreated (see reconnect).
+        await runtime.reconnect?.(ref);
         if (runtime.volumeUsage) {
           // Record the size for the usage page (T2.7); only re-check over-limit volumes.
           const usage = await runtime.volumeUsage(row.appId);
@@ -285,6 +287,9 @@ export class MachineController {
     }
 
     const ref = { appId, providerId: row.providerId };
+    // The gateway only wakes an app it can't reach; a recreated gateway or
+    // egress proxy is no longer on the app's network, so put it back first.
+    await this.#runtime.reconnect?.(ref);
     const status = await this.#runtime.status(ref);
     if (status === "missing") {
       throw new ApiError(404, "NOT_FOUND", "App container is missing", "Republish the app with `scad publish`.");

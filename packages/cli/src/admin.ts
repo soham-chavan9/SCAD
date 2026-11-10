@@ -19,6 +19,10 @@ export async function adminSuspendApp(
   return (await (await client(opts)).adminSetAppSuspended(opts.app, opts.suspended)).app;
 }
 
+export async function adminDeleteApp(opts: ClientOptions & { app: string }): Promise<AdminAppRef> {
+  return (await (await client(opts)).adminDeleteApp(opts.app)).app;
+}
+
 export async function adminInvites(opts: ClientOptions): Promise<Invite[]> {
   return (await (await client(opts)).adminListInvites()).invites;
 }

@@ -21,7 +21,9 @@ suspend them (`scad admin suspend-user`). See [`operator.md`](operator.md).
 
 ## GitHub (T0.6)
 
-`/login/github?return_to=...` starts OAuth with `state` + PKCE.
+`/login/github?return_to=...` starts OAuth with `state` + PKCE. GitHub is
+optional: with `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` both unset the
+gateway starts with email links only and hides the GitHub button (T2.9).
 
 ## Email magic link (T1.1)
 

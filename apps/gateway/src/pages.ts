@@ -53,12 +53,16 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-export function loginPage(opts: { returnTo: string; csrf: string }): string {
+export function loginPage(opts: { returnTo: string; csrf: string; github?: boolean }): string {
   const rt = escapeHtml(opts.returnTo);
+  const github =
+    opts.github === false
+      ? ""
+      : `<p><a href="/login/github?return_to=${escapeHtml(encodeURIComponent(opts.returnTo))}">Sign in with GitHub</a></p>\n`;
   return htmlPage(
     "Sign in",
     `<h1>Sign in</h1>
-<p><a href="/login/github?return_to=${escapeHtml(encodeURIComponent(opts.returnTo))}">Sign in with GitHub</a></p>
+${github}
 <form method="post" action="/login/email">
 <input type="hidden" name="csrf" value="${escapeHtml(opts.csrf)}"/>
 <input type="hidden" name="return_to" value="${rt}"/>

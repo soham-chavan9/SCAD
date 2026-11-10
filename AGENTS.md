@@ -171,6 +171,7 @@ POST   /admin/users/:id/suspend     :id = user id or email
 POST   /admin/users/:id/unsuspend   (T2.6)
 POST   /admin/apps/:id/suspend      :id = app id or <owner-handle>/<slug> (URL-encoded)
 POST   /admin/apps/:id/unsuspend    (T2.6)
+DELETE /admin/apps/:id              (T2.9) operator delete: container, /data volume, env, logs, shares
 GET    /admin/invites               (T2.6) sign-up invite list
 POST   /admin/invites               (T2.6) {email}
 DELETE /admin/invites/:email        (T2.6)

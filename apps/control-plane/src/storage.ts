@@ -1,5 +1,5 @@
 import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export type DataPaths = {
   root: string;
@@ -7,7 +7,12 @@ export type DataPaths = {
   logPath: (releaseId: string) => string;
 };
 
-export function createDataPaths(root: string): DataPaths {
+/**
+ * Paths under the data dir. Always absolute: the builder runs in another
+ * working directory and opens tarballs by the path the claim hands it.
+ */
+export function createDataPaths(dir: string): DataPaths {
+  const root = resolve(dir);
   return {
     root,
     tarballPath: (releaseId) => join(root, "tarballs", `${releaseId}.tar`),

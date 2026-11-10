@@ -31,12 +31,7 @@ async function main(): Promise<void> {
       : {}),
   });
 
-  const identity = fakeAuth
-    ? new FakeIdentityProvider()
-    : new GithubIdentityProvider({
-        clientId: required("GITHUB_CLIENT_ID"),
-        clientSecret: required("GITHUB_CLIENT_SECRET"),
-      });
+  const identity = fakeAuth ? new FakeIdentityProvider() : githubFromEnv();
 
   const mailer = new SmtpMailer({
     smtpUrl: required("SMTP_URL"),
@@ -60,6 +55,21 @@ async function main(): Promise<void> {
 
   await gateway.listen({ port, host: "0.0.0.0" });
   console.log(`gateway listening on ${port} (BASE_DOMAIN=${baseDomain})`);
+}
+
+/**
+ * GitHub sign-in is optional: with neither GITHUB_CLIENT_ID nor
+ * GITHUB_CLIENT_SECRET set, the auth host offers emailed sign-in links only.
+ * Setting just one of them is a mistake and stops startup.
+ */
+function githubFromEnv(): GithubIdentityProvider | null {
+  const clientId = process.env["GITHUB_CLIENT_ID"];
+  const clientSecret = process.env["GITHUB_CLIENT_SECRET"];
+  if (!clientId && !clientSecret) {
+    console.log("GitHub sign-in is off (GITHUB_CLIENT_ID/SECRET unset): email sign-in links only");
+    return null;
+  }
+  return new GithubIdentityProvider({ clientId: required("GITHUB_CLIENT_ID"), clientSecret: required("GITHUB_CLIENT_SECRET") });
 }
 
 function required(name: string): string {
