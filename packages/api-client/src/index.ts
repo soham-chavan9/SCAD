@@ -4,6 +4,8 @@ export {
   ScadApiError,
   ScadClient,
   type AppShares,
+  type EnvEntry,
+  type EnvUpdate,
   type AppSummary,
   type DeviceCodeResponse,
   type PublishResponse,

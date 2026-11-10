@@ -41,6 +41,10 @@ export type AppSummary = {
   url: string;
 };
 
+export type EnvEntry = { key: string; secret: true } | { key: string; secret: false; value: string };
+
+export type EnvUpdate = { env: EnvEntry[]; applied: "redeployed" | "next_publish" };
+
 export type AppShares = {
   app_id: string;
   visibility: "allowlist" | "instance";
@@ -152,6 +156,24 @@ export class ScadClient {
       `/v1/apps/${encodeURIComponent(idOrSlug)}/share/${encodeURIComponent(email)}`,
       { method: "DELETE", auth: true },
     );
+  }
+
+  /** Set (string) or delete (null) env vars; `secret` keys become write-only. */
+  async setEnv(
+    idOrSlug: string,
+    changes: Record<string, string | null>,
+    secret: string[] = [],
+  ): Promise<EnvUpdate> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/env`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(secret.length ? { ...changes, secret } : changes),
+      auth: true,
+    });
+  }
+
+  async listEnv(idOrSlug: string): Promise<{ env: EnvEntry[] }> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/env`, { method: "GET", auth: true });
   }
 
   async listShares(idOrSlug: string): Promise<AppShares> {

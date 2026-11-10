@@ -23,7 +23,7 @@ behaviour.
 | `name` | dir name / `--name` | slug `[a-z0-9-]{3,40}` | app slug when `name=` is not sent |
 | `port` | 8080 | 1–65535 | smoke check, container port, gateway upstream |
 | `start` | image `CMD` | string, split into argv (quotes group words; no shell) | container entrypoint for smoke and deploy |
-| `env` | `{}` | keys `[A-Za-z_][A-Za-z0-9_]*` (≤128 chars), values ≤32 KB | container env (smoke and deploy). Not for secrets: use `scad env set` (T1.6) |
+| `env` | `{}` | keys `[A-Za-z_][A-Za-z0-9_]*` (≤128 chars), values ≤32 KB | container env (smoke and deploy). Not for secrets: use `scad env set --secret` (see `secrets.md`) |
 | `egress` | `[]` | domains | stored; enforced by the egress proxy in T2.1 |
 | `resources.memory_mb` | 512 | integer, cap 1024 | container memory limit |
 | `resources.disk_gb` | 1 | integer, cap 5 | `/data` size limit (see `data-volume.md`) |

@@ -17,7 +17,7 @@ export type InternalBuildsOpts = {
   internalToken: string;
 };
 
-function assertInternal(request: { headers: Record<string, unknown> }, token: string): void {
+export function assertInternal(request: { headers: Record<string, unknown> }, token: string): void {
   const header = request.headers["x-scad-internal-token"];
   if (typeof header !== "string" || header !== token) {
     throw new ApiError(401, "UNAUTHENTICATED", "Invalid internal token", "Use the builder secret.");

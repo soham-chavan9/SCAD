@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  customType,
   integer,
   jsonb,
   pgEnum,
@@ -168,4 +169,29 @@ export const appAccess = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.appId, t.email] })],
+);
+
+/** Postgres bytea as a Node Buffer. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * Per-app env vars (T1.6). Every value is envelope-encrypted with MASTER_KEY
+ * (see src/secrets/crypto.ts); `is_secret` values are write-only via the API.
+ */
+export const envVars = pgTable(
+  "env_vars",
+  {
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id),
+    key: text("key").notNull(),
+    valueCiphertext: bytea("value_ciphertext").notNull(),
+    isSecret: boolean("is_secret").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.appId, t.key] })],
 );

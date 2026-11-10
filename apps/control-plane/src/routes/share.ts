@@ -31,7 +31,7 @@ function notFound(): ApiError {
  * Load an app the caller owns, by id or slug. Apps owned by someone else are
  * reported as NOT_FOUND so ownership is never leaked (INV10).
  */
-async function findOwnedApp(
+export async function findOwnedApp(
   db: Db["db"],
   ownerId: string,
   idOrSlug: string,

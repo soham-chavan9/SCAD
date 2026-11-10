@@ -29,6 +29,13 @@
       "when": 1794000799340,
       "tag": "0003_app_access",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794065014659,
+      "tag": "0004_env_vars",
+      "breakpoints": true
     }
   ]
 }
