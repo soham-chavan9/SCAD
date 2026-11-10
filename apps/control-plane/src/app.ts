@@ -12,6 +12,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { authDeviceRoutes } from "./routes/auth-device.js";
 import { envRoutes } from "./routes/env.js";
+import { deleteAppRoutes } from "./routes/delete-app.js";
 import { logsRoutes } from "./routes/logs.js";
 import { healthRoutes } from "./routes/health.js";
 import { internalBuildsRoutes } from "./routes/internal-builds.js";
@@ -108,6 +109,7 @@ export async function buildApp(opts: BuildAppOptions) {
     ...(machines ? { machines } : {}),
   });
   await app.register(logsRoutes, { db: opts.db });
+  await app.register(deleteAppRoutes, { db: opts.db, ...(machines ? { machines } : {}) });
   await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deploySpecFromManifest, makeError } from "@scad/shared";
 import { DockerRuntimeProvider, VolumeQuotaExceededError } from "@scad/runtime-docker";
+import { buildFailedHint } from "./build-hint.js";
 import { dockerBuild } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 import { smokeCheckHttp } from "./smoke.js";
@@ -98,7 +99,7 @@ export class Builder {
           makeError(
             "BUILD_FAILED",
             build.message,
-            "Fix the Dockerfile (or build context) and republish.",
+            buildFailedHint(build.log.split("\n").slice(-200)),
             {},
           ),
         );

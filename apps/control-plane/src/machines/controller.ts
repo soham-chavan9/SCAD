@@ -107,6 +107,18 @@ export class MachineController {
     return true;
   }
 
+  /** Remove the app's container, network, and /data volume, and forget its machine. */
+  async removeApp(appId: string): Promise<void> {
+    const current = this.#ops.get(appId);
+    if (current) await current.done.catch(() => undefined);
+    const done = (async () => {
+      await this.#runtime.remove(appId, { deleteVolume: true });
+      await this.#db.delete(machines).where(eq(machines.appId, appId));
+    })();
+    this.#track(appId, { kind: "stop", done });
+    await done;
+  }
+
   /** Record traffic: keeps the app awake and marks it viewed. */
   async touch(appId: string): Promise<void> {
     const now = this.#now();
