@@ -2,11 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deploySpecFromManifest, makeError } from "@scad/shared";
-import { DockerRuntimeProvider, VolumeQuotaExceededError } from "@scad/runtime-docker";
+import { DockerRuntimeProvider, RootImageError, VolumeQuotaExceededError } from "@scad/runtime-docker";
 import { buildFailedHint } from "./build-hint.js";
 import { dockerBuild } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
-import { smokeCheckHttp } from "./smoke.js";
 
 export { DEFAULT_CPU_SHARES, startToArgv } from "@scad/shared";
 
@@ -18,6 +17,14 @@ export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> 
       `The app's /data volume uses ${Math.ceil(err.usedBytes / 1048576)} MiB, over its ${Math.floor(err.limitBytes / 1048576)} MiB limit`,
       'Delete data under /data, or raise "resources.disk_gb" in scad.json (cap 5), then republish. The previous release keeps its data.',
       { used_bytes: err.usedBytes, limit_bytes: err.limitBytes },
+    );
+  }
+  if (err instanceof RootImageError) {
+    return makeError(
+      "BUILD_FAILED",
+      err.message,
+      'Add a non-root "USER" line to the Dockerfile (for example "USER node" on node images, or create a user and switch to it), then republish.',
+      {},
     );
   }
   return makeError(
@@ -119,14 +126,11 @@ export class Builder {
 
       try {
         await this.#log(job.releaseId, `smoke-checking port ${port}`);
-        await smokeCheckHttp({
-          imageRef,
-          port,
-          ...(spec.start ? { start: spec.start } : {}),
-          env: spec.env,
-          timeoutMs: 30_000,
-        });
+        // Same hardening and internal app network as the deploy (T2.2): the
+        // new image never runs with internet, host access, or a published port.
+        await this.#runtime.smokeCheck(spec, { timeoutMs: 30_000 });
       } catch (err) {
+        if (err instanceof RootImageError) throw err; // BUILD_FAILED with its own hint
         await this.#log(job.releaseId, `smoke failed: ${err instanceof Error ? err.message : "unknown error"}`);
         await this.#fail(
           job.releaseId,

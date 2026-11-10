@@ -13,5 +13,4 @@ export {
   SafeExtractError,
   EXTRACT_LIMITS,
 } from "./safe-extract.js";
-export { smokeCheckHttp } from "./smoke.js";
 

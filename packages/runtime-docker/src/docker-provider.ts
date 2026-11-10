@@ -10,12 +10,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import Docker from "dockerode";
+import { chooseOciRuntime, hardenedHostConfig } from "./hardening.js";
 import { linesFromDockerLogs } from "./logs.js";
 import {
   appLabels,
   assertAppId,
   containerName,
   LABEL_PORT,
+  LABEL_ROLE,
   networkName,
   volumeName,
 } from "./names.js";
@@ -44,6 +46,12 @@ export type DockerRuntimeOptions = {
   bytesPerDiskGb?: number;
   /** Only log lines newer than this are served (AGENTS §14: 7-day log retention). */
   logRetentionMs?: number;
+  /**
+   * OCI runtime policy (INV6): `auto` uses gVisor `runsc` when Docker has it,
+   * `runsc` requires it, `runc` never uses it. Defaults to `$SCAD_OCI_RUNTIME`
+   * or `auto`.
+   */
+  ociRuntime?: string;
 };
 
 /** AGENTS §14 default log retention. */
@@ -71,6 +79,23 @@ export const VOLUME_HELPER_IMAGE = "busybox:1.36";
 const LABEL_DISK_BYTES = "scad.disk_bytes";
 
 /**
+ * Busybox loop: `$1` host, `$2` port, `$3` seconds. Prints
+ * `SMOKE_STATUS=<code>` per HTTP answer; exits 0 on the first status below 500.
+ */
+const SMOKE_PROBE_SCRIPT = [
+  'end=$(( $(date +%s) + $3 ))',
+  'while [ "$(date +%s)" -lt "$end" ]; do',
+  "  code=$(printf 'GET / HTTP/1.0\\r\\nHost: smoke\\r\\n\\r\\n' | nc -w 2 \"$1\" \"$2\" 2>/dev/null | head -n 1 | cut -d' ' -f2)",
+  '  case "$code" in',
+  '    [1-4][0-9][0-9]) echo "SMOKE_STATUS=$code"; exit 0 ;;',
+  '    5[0-9][0-9]) echo "SMOKE_STATUS=$code" ;;',
+  "  esac",
+  "  usleep 250000 2>/dev/null || sleep 1",
+  "done",
+  "exit 1",
+].join("\n");
+
+/**
  * Docker local volumes have no size limit, so the quota is measured: a start
  * or deploy is refused while `/data` is over its limit, and
  * `enforceVolumeQuota` stops a running app that has grown past it.
@@ -87,6 +112,14 @@ export class VolumeQuotaExceededError extends Error {
   }
 }
 
+/** The image would run as root; SCAD refuses it before it starts (INV6). */
+export class RootImageError extends Error {
+  constructor(imageRef: string, user: string) {
+    super(`image ${imageRef} must set a non-root USER (INV6); got ${user === "" ? "(empty/root)" : user}`);
+    this.name = "RootImageError";
+  }
+}
+
 export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #docker: Docker;
   readonly #gatewayContainerName: string | null;
@@ -94,6 +127,8 @@ export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #egressPolicyDir: string;
   readonly #bytesPerDiskGb: number;
   readonly #logRetentionMs: number;
+  readonly #ociRuntimePolicy: string | undefined;
+  #ociRuntimeChoice: Promise<string | undefined> | undefined;
 
   constructor(options: DockerRuntimeOptions = {}) {
     this.#docker = new Docker(options.docker);
@@ -108,6 +143,22 @@ export class DockerRuntimeProvider implements RuntimeProvider {
         ? DEFAULT_EGRESS_CONTAINER
         : options.egressProxyContainerName;
     this.#egressPolicyDir = options.egressPolicyDir ?? defaultEgressPolicyDir();
+    this.#ociRuntimePolicy = options.ociRuntime ?? process.env["SCAD_OCI_RUNTIME"];
+  }
+
+  /**
+   * The OCI runtime apps run under: `runsc` (gVisor) or undefined for
+   * Docker's default. Decided once per provider from what Docker reports.
+   */
+  ociRuntime(): Promise<string | undefined> {
+    this.#ociRuntimeChoice ??= this.#docker.info().then((info: { Runtimes?: Record<string, unknown> }) =>
+      chooseOciRuntime(Object.keys(info.Runtimes ?? {}), this.#ociRuntimePolicy),
+    );
+    // A failed lookup is not cached, so the next deploy asks Docker again.
+    this.#ociRuntimeChoice.catch(() => {
+      this.#ociRuntimeChoice = undefined;
+    });
+    return this.#ociRuntimeChoice;
   }
 
   async ensureApp(appId: string, diskGb: number): Promise<void> {
@@ -149,21 +200,13 @@ export class DockerRuntimeProvider implements RuntimeProvider {
       ...(spec.start !== undefined && spec.start.length > 0
         ? { Entrypoint: spec.start, Cmd: [] }
         : {}),
-      HostConfig: {
-        ReadonlyRootfs: true,
-        CapDrop: ["ALL"],
-        SecurityOpt: ["no-new-privileges:true"],
-        Memory: spec.limits.memoryMb * 1024 * 1024,
-        CpuShares: spec.limits.cpuShares,
-        PidsLimit: spec.limits.pids,
-        NetworkMode: net,
-        // No PortBindings / PublishAllPorts — apps are reachability-gated via internal nets.
-        Binds: [`${vol}:/data:rw`],
-        Tmpfs: {
-          "/tmp": "rw,noexec,nosuid,size=64m",
-        },
-        LogConfig: { Type: APP_LOG_CONFIG.Type, Config: { ...APP_LOG_CONFIG.Config } },
-      },
+      HostConfig: hardenedHostConfig({
+        limits: spec.limits,
+        networkMode: net,
+        dataMount: { volume: vol },
+        ociRuntime: await this.ociRuntime(),
+        logConfig: { Type: APP_LOG_CONFIG.Type, Config: { ...APP_LOG_CONFIG.Config } },
+      }),
     };
 
     let container;
@@ -183,6 +226,72 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     await this.#connectGateway(spec.appId);
     await this.#connectEgressProxy(spec.appId);
     return { appId: spec.appId, providerId: container.id };
+  }
+
+  /**
+   * Builder smoke check (T2.2): run the new image once with exactly the
+   * deploy's hardening on the app's own internal network (no internet, no
+   * host, no egress proxy, a throwaway tmpfs for `/data`), and probe its port
+   * from a helper container on that network. Resolves when the app answers
+   * HTTP with a status below 500; throws otherwise. Never touches the running
+   * release or its volume.
+   */
+  async smokeCheck(spec: DeploySpec, opts: { timeoutMs?: number } = {}): Promise<void> {
+    assertAppId(spec.appId);
+    const timeoutSec = Math.max(1, Math.ceil((opts.timeoutMs ?? 30_000) / 1000));
+    await this.#ensureNetwork(spec.appId);
+    await this.#assertNonRootImage(spec.imageRef);
+    await this.#ensureHelperImage();
+    const net = networkName(spec.appId);
+    const labels = { ...appLabels(spec.appId), [LABEL_ROLE]: "smoke" };
+
+    const app = await this.#docker.createContainer({
+      Image: spec.imageRef,
+      Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
+      Labels: labels,
+      ExposedPorts: { [`${spec.port}/tcp`]: {} },
+      ...(spec.start !== undefined && spec.start.length > 0 ? { Entrypoint: spec.start, Cmd: [] } : {}),
+      HostConfig: hardenedHostConfig({
+        limits: spec.limits,
+        networkMode: net,
+        dataMount: { tmpfsMb: 64 },
+        ociRuntime: await this.ociRuntime(),
+        logConfig: { Type: APP_LOG_CONFIG.Type, Config: { ...APP_LOG_CONFIG.Config } },
+      }),
+    });
+    let probe: Docker.Container | undefined;
+    try {
+      await app.start();
+      const info = await app.inspect();
+      const ip = info.NetworkSettings.Networks?.[net]?.IPAddress;
+      if (!ip || !/^[0-9.]+$/.test(ip)) throw new Error(`smoke container has no IP on ${net}`);
+      probe = await this.#docker.createContainer({
+        Image: VOLUME_HELPER_IMAGE,
+        // Values are positional args to the fixed script, never interpolated.
+        Cmd: ["sh", "-c", SMOKE_PROBE_SCRIPT, "smoke-probe", ip, String(spec.port), String(timeoutSec)],
+        Labels: labels,
+        HostConfig: {
+          NetworkMode: net,
+          ReadonlyRootfs: true,
+          CapDrop: ["ALL"],
+          SecurityOpt: ["no-new-privileges:true"],
+          Memory: 32 * 1024 * 1024,
+          PidsLimit: 32,
+        },
+      });
+      await probe.start();
+      await probe.wait();
+      const out = String(await probe.logs({ stdout: true, stderr: false }));
+      const codes = [...out.matchAll(/SMOKE_STATUS=(\d{3})/g)].map((m) => Number(m[1]));
+      const last = codes.at(-1);
+      if (last !== undefined && last < 500) return;
+      throw new Error(
+        `port ${spec.port} did not become ready${last !== undefined ? ` (last HTTP ${last})` : ""}`,
+      );
+    } finally {
+      await probe?.remove({ force: true }).catch(() => undefined);
+      await app.remove({ force: true }).catch(() => undefined);
+    }
   }
 
   async start(m: MachineRef): Promise<void> {
@@ -562,9 +671,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
     const user = (image.Config.User ?? "").trim();
     if (!user || user === "0" || user === "root" || /^0:/.test(user) || /^root:/.test(user)) {
-      throw new Error(
-        `image ${imageRef} must set a non-root USER (INV6); got ${user === "" ? "(empty/root)" : user}`,
-      );
+      throw new RootImageError(imageRef, user);
     }
   }
 
