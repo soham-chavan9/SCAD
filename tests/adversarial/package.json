@@ -11,6 +11,9 @@
   },
   "scripts": {
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run --root ../.. tests/adversarial"
+  },
+  "devDependencies": {
+    "@scad/builder": "workspace:*"
   }
 }

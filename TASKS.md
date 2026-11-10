@@ -75,9 +75,15 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
     - [x] Full `m0-smoke.sh` on macOS Docker Desktop (sudo-free, no `--vm-only`; checks 1–7 passed on this Mac)
     - [ ] Human GitHub second-account 403 browser check
 
-- [ ] **T0.9 Build isolation (INV8)** — NOT STARTED
+- [x] **T0.9 Build isolation (INV8)**
   - Depends: T0.5. Do not start M1, and do not let a friend publish, until this is closed.
-  - A `RUN` step in an uploaded Dockerfile can reach Postgres, the control plane, Mailpit, and the host. The builder process also sees platform secrets because it runs on the host. Report and fix are still open. Do not change the build network without asking.
+  - Decision (human): `docker build --network=none`; Dockerfiles must not fetch dependencies during `RUN`. See `docs/build-isolation.md`.
+  - Done when:
+    - [x] Builder runs `docker build --network=none`, no build args/secrets/ssh (`apps/builder/src/docker-build.ts`)
+    - [x] docker CLI env limited to `PATH`/`HOME`/`TMPDIR`/`DOCKER_*`; builder drops platform secrets from its env at startup; smoke starts builder under `env -i`
+    - [x] INV8 real-Docker test: `RUN` cannot reach control plane, Postgres, Mailpit, host, metadata, internet, DNS (`tests/adversarial/src/inv8-build-isolation.test.ts`)
+    - [x] `examples/*` build with `--network=none` (echo-identity no longer runs `npm install`)
+    - [x] README + docs updated
 
 **Warning:** GitHub sign-in creates an account for anyone with a GitHub account. `OPERATOR_EMAILS` gates only device-code approval (`POST /v1/auth/device/approve`), not GitHub sign-in. Fix that before the gateway is reachable outside localhost.
 
