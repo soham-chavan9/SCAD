@@ -123,6 +123,7 @@ export async function buildApp(opts: BuildAppOptions) {
     db: opts.db,
     paths,
     internalToken,
+    ...(machines ? { machines } : {}),
   });
 
   if (opts.internalSecret) {
