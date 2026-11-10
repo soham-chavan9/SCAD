@@ -43,6 +43,8 @@ services:
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
       JWT_PREVIOUS_PUBLIC_KEY: ${JWT_PREVIOUS_PUBLIC_KEY:-}
       GATEWAY_FAKE_AUTH: ${GATEWAY_FAKE_AUTH:-0}
+      # Invite allowlist (T2.6): these may always create an account.
+      OPERATOR_EMAILS: ${OPERATOR_EMAILS:-}
       # Magic-link email (T1.1). Mailpit inside Compose; UI at http://localhost:8025
       SMTP_URL: ${GATEWAY_SMTP_URL:-smtp://mailpit:1025}
       SMTP_FROM: ${SMTP_FROM:-}

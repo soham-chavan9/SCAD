@@ -180,6 +180,15 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
         await lockApp(tx, existing.id);
         [existing] = await findExisting();
       }
+      if (existing?.status === "suspended") {
+        // An owner must not lift an operator's suspension by republishing (T2.6).
+        throw new ApiError(
+          403,
+          "APP_SUSPENDED",
+          "This app is suspended by an operator",
+          "Ask an operator to lift the suspension (scad admin unsuspend-app) before publishing again.",
+        );
+      }
       const takesNewSlot = !existing || existing.status === "deleted" || existing.status === "expired";
       if (takesNewSlot) {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(${LIVE_APPS_LOCK_KEY})`);

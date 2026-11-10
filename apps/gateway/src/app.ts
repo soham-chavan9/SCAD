@@ -30,6 +30,8 @@ export type BuildGatewayOptions = {
   wakeBudgetMs?: number;
   /** Hold for HTML navigations before showing the wait page (default 3 s). */
   htmlHoldMs?: number;
+  /** OPERATOR_EMAILS: may always create an account; everyone else needs an invite or a share (T2.6). */
+  operatorEmails?: Iterable<string>;
 };
 
 export async function buildGateway(opts: BuildGatewayOptions) {
@@ -59,6 +61,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
         keys: opts.keys,
         mailer: opts.mailer,
         now: opts.now ?? (() => new Date()),
+        operatorEmails: new Set([...(opts.operatorEmails ?? [])].map((e) => e.trim().toLowerCase()).filter(Boolean)),
         ...(opts.allowDevLogin !== undefined ? { allowDevLogin: opts.allowDevLogin } : {}),
       };
       await scope.register(authHostRoutes, authOpts);

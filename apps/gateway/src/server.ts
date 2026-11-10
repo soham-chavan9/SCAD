@@ -1,3 +1,4 @@
+import { parseEmailList } from "./auth/signup.js";
 import { createDb } from "@scad/control-plane";
 import { GithubIdentityProvider } from "./auth/github.js";
 import { FakeIdentityProvider } from "./auth/identity.js";
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
       internalSecret,
     }),
     allowDevLogin: fakeAuth,
+    operatorEmails: parseEmailList(process.env["OPERATOR_EMAILS"]),
     machines: createHttpMachineClient({ controlPlaneUrl, internalSecret }),
   });
 

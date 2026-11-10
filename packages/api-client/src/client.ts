@@ -51,6 +51,28 @@ export type AppShares = {
   viewers: { email: string; granted_at: string }[];
 };
 
+export type AdminUser = {
+  id: string;
+  email: string;
+  handle: string;
+  role: "operator" | "member";
+  status: "active" | "suspended";
+  created_at: string;
+};
+
+export type AdminAppRef = { id: string; slug: string; owner: string; status: string };
+
+export type Invite = { email: string; invited_by: string | null; created_at: string };
+
+export type AuditEvent = {
+  id: string;
+  at: string;
+  action: string;
+  app_id: string | null;
+  actor: string | null;
+  metadata: Record<string, unknown>;
+};
+
 export class ScadApiError extends Error {
   readonly status: number;
   readonly envelope: ErrorEnvelope | { error: string };
@@ -239,6 +261,47 @@ export class ScadClient {
         }
       }
     }
+  }
+
+  // Operator routes (T2.6). `user` is an id or email; `app` is an id or <owner-handle>/<slug>.
+
+  async adminListUsers(): Promise<{ users: AdminUser[] }> {
+    return this.#json("/v1/admin/users", { auth: true });
+  }
+
+  async adminSetUserSuspended(user: string, suspended: boolean): Promise<{ user: AdminUser }> {
+    const action = suspended ? "suspend" : "unsuspend";
+    return this.#json(`/v1/admin/users/${encodeURIComponent(user)}/${action}`, { method: "POST", auth: true });
+  }
+
+  async adminSetAppSuspended(app: string, suspended: boolean): Promise<{ app: AdminAppRef }> {
+    const action = suspended ? "suspend" : "unsuspend";
+    return this.#json(`/v1/admin/apps/${encodeURIComponent(app)}/${action}`, { method: "POST", auth: true });
+  }
+
+  async adminListInvites(): Promise<{ invites: Invite[] }> {
+    return this.#json("/v1/admin/invites", { auth: true });
+  }
+
+  async adminAddInvite(email: string): Promise<{ email: string; created: boolean }> {
+    return this.#json("/v1/admin/invites", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+      auth: true,
+    });
+  }
+
+  async adminRemoveInvite(email: string): Promise<{ email: string; removed: boolean }> {
+    return this.#json(`/v1/admin/invites/${encodeURIComponent(email)}`, { method: "DELETE", auth: true });
+  }
+
+  async adminAudit(opts: { limit?: number; app?: string } = {}): Promise<{ events: AuditEvent[] }> {
+    const q = new URLSearchParams();
+    if (opts.limit !== undefined) q.set("limit", String(opts.limit));
+    if (opts.app) q.set("app", opts.app);
+    const qs = q.toString();
+    return this.#json(`/v1/admin/audit${qs ? `?${qs}` : ""}`, { auth: true });
   }
 
   async #json<T>(

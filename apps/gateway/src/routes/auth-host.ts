@@ -8,7 +8,6 @@ import {
   consumeMagicLink,
   createMagicLink,
   findUserByEmail,
-  isSharedEmail,
   normalizeEmail,
 } from "../auth/magic-links.js";
 import { createOauthState, takeOauthState } from "../auth/oauth-state.js";
@@ -19,6 +18,7 @@ import {
   MAGIC_LINK_WINDOW_MS,
   SlidingWindowLimiter,
 } from "../auth/rate-limit.js";
+import { mayCreateAccount, NotInvitedError } from "../auth/signup.js";
 import { createEmailUser, upsertGithubUser, type GatewayUser } from "../auth/users.js";
 import {
   CSRF_COOKIE,
@@ -38,6 +38,7 @@ import {
   checkEmailPage,
   confirmMagicLinkPage,
   loginPage,
+  notInvitedPage,
   rateLimitedPage,
 } from "../pages.js";
 
@@ -52,6 +53,8 @@ export type AuthHostOpts = {
   mailer: Mailer;
   /** Clock (tests). */
   now: () => Date;
+  /** OPERATOR_EMAILS (lowercase): may always create an account (T2.6). */
+  operatorEmails: ReadonlySet<string>;
 };
 
 function publicOrigin(baseDomain: string, host: string): string {
@@ -188,10 +191,13 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
         .send(rateLimitedPage());
     }
 
-    // Links go to existing active users, and to emails an app was shared with
-    // (their account is created on first sign-in). Nobody else gets mail.
+    // Links go to existing active users, and to invited emails (operators,
+    // shared-to emails, the invite list); their account is created on first
+    // sign-in. Nobody else gets mail, and the page is the same (no enumeration).
     const user = await findUserByEmail(opts.db, email);
-    const canSignIn = user ? user.status === "active" : await isSharedEmail(opts.db, email);
+    const canSignIn = user
+      ? user.status === "active"
+      : await mayCreateAccount(opts.db, email, opts.operatorEmails);
     if (canSignIn) {
       const token = await createMagicLink(opts.db, {
         email,
@@ -256,12 +262,12 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
       throw err;
     }
     let user = await findUserByEmail(opts.db, link.email);
-    if (!user && (await isSharedEmail(opts.db, link.email))) {
-      // First sign-in for a shared email: create the account (T1.2).
-      user = await createEmailUser(opts.db, link.email);
-    }
     if (!user) {
-      return reply.status(400).type("text/html").send(badCallbackPage("This sign-in link is not valid."));
+      // First sign-in: create the account only if the email is still invited (T2.6).
+      if (!(await mayCreateAccount(opts.db, link.email, opts.operatorEmails))) {
+        return reply.status(403).type("text/html").send(notInvitedPage());
+      }
+      user = await createEmailUser(opts.db, link.email);
     }
     return finishSignIn(user, link.returnTo, reply);
   });
@@ -316,8 +322,13 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
 
     let user;
     try {
-      user = await upsertGithubUser(opts.db, profile);
+      user = await upsertGithubUser(opts.db, profile, (email) =>
+        mayCreateAccount(opts.db, email, opts.operatorEmails),
+      );
     } catch (err) {
+      if (err instanceof NotInvitedError) {
+        return reply.status(403).type("text/html").send(notInvitedPage());
+      }
       const message = err instanceof Error ? err.message : "User upsert failed";
       return reply.status(400).type("text/html").send(badCallbackPage(message));
     }

@@ -50,6 +50,13 @@
       "when": 1794256023545,
       "tag": "0006_lifecycle_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794310797499,
+      "tag": "0007_invites",
+      "breakpoints": true
     }
   ]
 }

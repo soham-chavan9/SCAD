@@ -259,3 +259,13 @@ export const usageDaily = pgTable(
   },
   (t) => [primaryKey({ columns: [t.appId, t.day] })],
 );
+
+/**
+ * Operator-managed sign-up invites (T2.6). Only OPERATOR_EMAILS, emails some
+ * app was shared to, and emails on this list may create an account.
+ */
+export const invites = pgTable("invites", {
+  email: text("email").primaryKey(),
+  invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
