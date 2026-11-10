@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { deploySpecFromManifest, makeError } from "@scad/shared";
 import { DockerRuntimeProvider, RootImageError, VolumeQuotaExceededError } from "@scad/runtime-docker";
 import { buildFailedHint } from "./build-hint.js";
-import { dockerBuild } from "./docker-build.js";
+import { BUILD_TIMEOUT_MS, dockerBuild, type BuildResult } from "./docker-build.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 
 export { DEFAULT_CPU_SHARES, startToArgv } from "@scad/shared";
@@ -33,6 +33,21 @@ export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> 
     "Inspect the build log, fix the app, and republish.",
     {},
   );
+}
+
+/** §8 envelope for a failed `docker build` (the control plane adds `log_tail`). */
+export function buildFailureEnvelope(
+  build: Extract<BuildResult, { ok: false }>,
+): ReturnType<typeof makeError> {
+  if (build.timedOut) {
+    return makeError(
+      "BUILD_FAILED",
+      build.message,
+      `Builds get ${BUILD_TIMEOUT_MS / 60_000} minutes. Make the build faster: vendor dependencies instead of compiling them in RUN steps, drop unneeded steps, and use a smaller base image, then republish.`,
+      { timed_out: true },
+    );
+  }
+  return makeError("BUILD_FAILED", build.message, buildFailedHint(build.log.split("\n").slice(-200)), {});
 }
 
 export type ClaimedJob = {
@@ -101,15 +116,7 @@ export class Builder {
       await this.#log(job.releaseId, build.log);
 
       if (!build.ok) {
-        await this.#fail(
-          job.releaseId,
-          makeError(
-            "BUILD_FAILED",
-            build.message,
-            buildFailedHint(build.log.split("\n").slice(-200)),
-            {},
-          ),
-        );
+        await this.#fail(job.releaseId, buildFailureEnvelope(build));
         return;
       }
 

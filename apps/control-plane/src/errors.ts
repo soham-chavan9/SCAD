@@ -53,6 +53,19 @@ export function errorHandler(
   const statusCode =
     "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : 500;
 
+  // Multipart file over its limit (FST_REQ_FILE_TOO_LARGE) or body over bodyLimit.
+  if (statusCode === 413) {
+    void reply.status(413).send(
+      makeError(
+        "UPLOAD_TOO_LARGE",
+        "Upload exceeds the 100 MB limit",
+        "Reduce the publish directory to under 100 MB (list build outputs and large data files in .scadignore; node_modules and .git are already skipped), then retry.",
+        {},
+      ),
+    );
+    return;
+  }
+
   if (statusCode === 400) {
     void reply.status(400).send(
       makeError("VALIDATION_FAILED", error.message, "Fix the request and retry."),

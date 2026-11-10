@@ -11,12 +11,17 @@ export type BuildResult = {
   ok: false;
   log: string;
   message: string;
+  /** The build ran past its time budget and was killed (T2.3). */
+  timedOut?: boolean;
 };
+
+/** AGENTS §14: a build gets 10 minutes, then it is killed. */
+export const BUILD_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type ExecFn = (
   file: string,
   args: string[],
-  options: { env: NodeJS.ProcessEnv; maxBuffer: number },
+  options: { env: NodeJS.ProcessEnv; maxBuffer: number; timeout: number },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 /**
@@ -72,23 +77,41 @@ export async function dockerBuild(opts: {
   /** Environment to filter for the docker CLI. Defaults to process.env. */
   parentEnv?: NodeJS.ProcessEnv;
   exec?: ExecFn;
+  /** Kill the build after this long. Defaults to {@link BUILD_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }): Promise<BuildResult> {
   const exec = opts.exec ?? defaultExec;
+  const timeoutMs = opts.timeoutMs ?? BUILD_TIMEOUT_MS;
   try {
     const { stdout, stderr } = await exec("docker", buildArgs(opts), {
       env: buildEnv(opts.parentEnv ?? process.env),
       maxBuffer: 20 * 1024 * 1024,
+      // The docker CLI cancels the BuildKit build when it gets SIGTERM.
+      timeout: timeoutMs,
     });
     return { ok: true, imageRef: opts.imageRef, log: `${stdout}\n${stderr}` };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean };
     const log = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? String(err)}`;
+    if (e.killed === true) {
+      return {
+        ok: false,
+        log,
+        timedOut: true,
+        message: `docker build timed out after ${formatDuration(timeoutMs)}`,
+      };
+    }
     return {
       ok: false,
       log,
       message: "docker build failed",
     };
   }
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 60_000 && ms % 60_000 === 0) return `${ms / 60_000} minute${ms === 60_000 ? "" : "s"}`;
+  return `${Math.round(ms / 1000)} seconds`;
 }
 
 /** Platform secrets the builder process must never hold while it runs untrusted builds. */
