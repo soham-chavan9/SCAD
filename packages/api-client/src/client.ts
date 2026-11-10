@@ -41,6 +41,12 @@ export type AppSummary = {
   url: string;
 };
 
+export type AppShares = {
+  app_id: string;
+  visibility: "allowlist" | "instance";
+  viewers: { email: string; granted_at: string }[];
+};
+
 export class ScadApiError extends Error {
   readonly status: number;
   readonly envelope: ErrorEnvelope | { error: string };
@@ -125,6 +131,44 @@ export class ScadClient {
   async getApp(idOrSlug: string): Promise<{ app: AppSummary }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, {
       method: "GET",
+      auth: true,
+    });
+  }
+
+  async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string }> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/share`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+      auth: true,
+    });
+  }
+
+  async unshareApp(
+    idOrSlug: string,
+    email: string,
+  ): Promise<{ app_id: string; email: string; removed: boolean }> {
+    return this.#json(
+      `/v1/apps/${encodeURIComponent(idOrSlug)}/share/${encodeURIComponent(email)}`,
+      { method: "DELETE", auth: true },
+    );
+  }
+
+  async listShares(idOrSlug: string): Promise<AppShares> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/share`, {
+      method: "GET",
+      auth: true,
+    });
+  }
+
+  async setVisibility(
+    idOrSlug: string,
+    visibility: "allowlist" | "instance",
+  ): Promise<{ app: { id: string; slug: string; visibility: "allowlist" | "instance" } }> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ visibility }),
       auth: true,
     });
   }

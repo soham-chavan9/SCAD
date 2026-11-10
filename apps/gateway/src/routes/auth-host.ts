@@ -8,6 +8,7 @@ import {
   consumeMagicLink,
   createMagicLink,
   findUserByEmail,
+  isSharedEmail,
   normalizeEmail,
 } from "../auth/magic-links.js";
 import { createOauthState, takeOauthState } from "../auth/oauth-state.js";
@@ -18,7 +19,7 @@ import {
   MAGIC_LINK_WINDOW_MS,
   SlidingWindowLimiter,
 } from "../auth/rate-limit.js";
-import { upsertGithubUser, type GatewayUser } from "../auth/users.js";
+import { createEmailUser, upsertGithubUser, type GatewayUser } from "../auth/users.js";
 import {
   CSRF_COOKIE,
   OAUTH_STATE_COOKIE,
@@ -184,8 +185,11 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
         .send(rateLimitedPage());
     }
 
+    // Links go to existing active users, and to emails an app was shared with
+    // (their account is created on first sign-in). Nobody else gets mail.
     const user = await findUserByEmail(opts.db, email);
-    if (user && user.status === "active") {
+    const canSignIn = user ? user.status === "active" : await isSharedEmail(opts.db, email);
+    if (canSignIn) {
       const token = await createMagicLink(opts.db, {
         email,
         appHost: target.appHost,
@@ -248,7 +252,11 @@ export const authHostRoutes: FastifyPluginAsync<AuthHostOpts> = async (app, opts
       }
       throw err;
     }
-    const user = await findUserByEmail(opts.db, link.email);
+    let user = await findUserByEmail(opts.db, link.email);
+    if (!user && (await isSharedEmail(opts.db, link.email))) {
+      // First sign-in for a shared email: create the account (T1.2).
+      user = await createEmailUser(opts.db, link.email);
+    }
     if (!user) {
       return reply.status(400).type("text/html").send(badCallbackPage("This sign-in link is not valid."));
     }

@@ -14,6 +14,7 @@ import { internalBuildsRoutes } from "./routes/internal-builds.js";
 import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
+import { shareRoutes } from "./routes/share.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
 export type BuildAppOptions = {
@@ -76,6 +77,7 @@ export async function buildApp(opts: BuildAppOptions) {
     publicBaseUrl,
   });
   await app.register(appsRoutes, { db: opts.db, baseDomain });
+  await app.register(shareRoutes, { db: opts.db });
   await app.register(publishRoutes, { db: opts.db, paths, baseDomain });
   await app.register(releasesRoutes, { db: opts.db, paths });
   await app.register(internalBuildsRoutes, {

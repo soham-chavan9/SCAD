@@ -110,3 +110,61 @@ export async function upsertGithubUser(
     status: created.status,
   };
 }
+
+/**
+ * Candidate handle from an email local part: lowercase, runs of other
+ * characters become one hyphen, trimmed to 39 chars (INV11: always validated).
+ */
+export function handleBaseFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const cleaned = local
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return isHandle(cleaned) ? cleaned : "user";
+}
+
+/**
+ * Create the account for someone signing in by email for the first time
+ * (T1.2: an app was shared with them before they had one). Picks a free
+ * handle `base`, `base-2`, `base-3`, ...
+ */
+export async function createEmailUser(db: Database, email: string): Promise<GatewayUser> {
+  const base = handleBaseFromEmail(email);
+  for (let n = 1; n <= 50; n++) {
+    const handle = n === 1 ? base : `${base}-${n}`;
+    if (!isHandle(handle)) break;
+    const [created] = await db
+      .insert(schema.users)
+      .values({ email, displayName: "", handle, role: "member", status: "active" })
+      .onConflictDoNothing()
+      .returning();
+    if (created) {
+      return {
+        id: created.id,
+        email: created.email,
+        handle: created.handle,
+        displayName: created.displayName,
+        status: created.status,
+      };
+    }
+    // Conflict: either the handle is taken, or the email was created concurrently.
+    const [byEmail] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    if (byEmail) {
+      return {
+        id: byEmail.id,
+        email: byEmail.email,
+        handle: byEmail.handle,
+        displayName: byEmail.displayName,
+        status: byEmail.status,
+      };
+    }
+  }
+  throw new Error("could not allocate a handle");
+}

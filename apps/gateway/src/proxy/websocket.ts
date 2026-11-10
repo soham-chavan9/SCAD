@@ -2,6 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import httpProxy from "http-proxy";
 import type { Db } from "@scad/control-plane";
+import { canViewApp } from "../auth/access.js";
 import { loadSessionUser } from "../auth/sessions.js";
 import { SESSION_COOKIE } from "../cookies.js";
 import { authHost } from "../host.js";
@@ -73,7 +74,8 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
         const user = sessionId
           ? await loadSessionUser(opts.db, { sessionId, appHost: host })
           : null;
-        if (!user || user.id !== resolved.ownerId || user.status !== "active") {
+        // Same ACL as HTTP (owner, allowlist, or instance visibility).
+        if (!user || !(await canViewApp(opts.db, resolved, user))) {
           socket.destroy();
           return;
         }

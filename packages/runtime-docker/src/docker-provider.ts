@@ -25,32 +25,64 @@ export type DockerRuntimeOptions = {
    * Defaults to `scad-gateway`. Set `null` to disable attachment (unit tests).
    */
   gatewayContainerName?: string | null;
+  /** Bytes per `diskGb` unit. Default 1 GiB; tests shrink it to keep fills small. */
+  bytesPerDiskGb?: number;
 };
 
 const DEFAULT_GATEWAY_CONTAINER = "scad-gateway";
+const GIB = 1024 * 1024 * 1024;
+/** Trusted helper image used to prepare and measure `/data` volumes. */
+export const VOLUME_HELPER_IMAGE = "busybox:1.36";
+const LABEL_DISK_BYTES = "scad.disk_bytes";
+
+/**
+ * Docker local volumes have no size limit, so the quota is measured: a start
+ * or deploy is refused while `/data` is over its limit, and
+ * `enforceVolumeQuota` stops a running app that has grown past it.
+ */
+export class VolumeQuotaExceededError extends Error {
+  readonly usedBytes: number;
+  readonly limitBytes: number;
+
+  constructor(usedBytes: number, limitBytes: number) {
+    super(`/data uses ${usedBytes} bytes, over its ${limitBytes}-byte limit`);
+    this.name = "VolumeQuotaExceededError";
+    this.usedBytes = usedBytes;
+    this.limitBytes = limitBytes;
+  }
+}
 
 export class DockerRuntimeProvider implements RuntimeProvider {
   readonly #docker: Docker;
   readonly #gatewayContainerName: string | null;
+  readonly #bytesPerDiskGb: number;
 
   constructor(options: DockerRuntimeOptions = {}) {
     this.#docker = new Docker(options.docker);
+    this.#bytesPerDiskGb = options.bytesPerDiskGb ?? GIB;
     this.#gatewayContainerName =
       options.gatewayContainerName === undefined
         ? DEFAULT_GATEWAY_CONTAINER
         : options.gatewayContainerName;
   }
 
-  async ensureApp(appId: string, _diskGb: number): Promise<void> {
+  async ensureApp(appId: string, diskGb: number): Promise<void> {
     assertAppId(appId);
     await this.#ensureNetwork(appId);
-    await this.#ensureVolume(appId);
+    await this.#ensureVolume(appId, diskGb);
   }
 
   async deploy(spec: DeploySpec): Promise<MachineRef> {
     assertAppId(spec.appId);
     await this.ensureApp(spec.appId, spec.limits.diskGb);
     await this.#assertNonRootImage(spec.imageRef);
+    const limitBytes = spec.limits.diskGb * this.#bytesPerDiskGb;
+    // Make /data writable for the image's non-root USER and check the quota
+    // before the old release is torn down, so a refused deploy keeps serving.
+    const usedBytes = await this.#prepareAndMeasureVolume(spec.appId);
+    if (usedBytes > limitBytes) {
+      throw new VolumeQuotaExceededError(usedBytes, limitBytes);
+    }
     await this.#removeExistingContainer(spec.appId);
 
     const net = networkName(spec.appId);
@@ -59,6 +91,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     const labels = {
       ...appLabels(spec.appId),
       [LABEL_PORT]: String(spec.port),
+      [LABEL_DISK_BYTES]: String(limitBytes),
     };
 
     const createOpts: Docker.ContainerCreateOptions = {
@@ -106,6 +139,10 @@ export class DockerRuntimeProvider implements RuntimeProvider {
 
   async start(m: MachineRef): Promise<void> {
     const container = this.#docker.getContainer(m.providerId);
+    const usage = await this.volumeUsage(m.appId);
+    if (usage.usedBytes > usage.limitBytes) {
+      throw new VolumeQuotaExceededError(usage.usedBytes, usage.limitBytes);
+    }
     try {
       await container.start();
     } catch (err) {
@@ -205,6 +242,95 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
   }
 
+  /** Bytes used by the app's `/data` volume and its limit (Docker-specific). */
+  async volumeUsage(appId: string): Promise<{ usedBytes: number; limitBytes: number }> {
+    assertAppId(appId);
+    const usedBytes = await this.#measureVolume(appId, false);
+    return { usedBytes, limitBytes: await this.#limitBytes(appId) };
+  }
+
+  /**
+   * Stop the app if `/data` is over its limit. Call periodically (scheduler)
+   * and after writes you suspect; returns what happened.
+   */
+  async enforceVolumeQuota(m: MachineRef): Promise<"ok" | "stopped"> {
+    const usage = await this.volumeUsage(m.appId);
+    if (usage.usedBytes <= usage.limitBytes) return "ok";
+    await this.stop(m);
+    return "stopped";
+  }
+
+  async #limitBytes(appId: string): Promise<number> {
+    const fromLabel = (labels: Record<string, string> | undefined): number | null => {
+      const n = Number.parseInt(labels?.[LABEL_DISK_BYTES] ?? "", 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    try {
+      const info = await this.#docker.getContainer(containerName(appId)).inspect();
+      const n = fromLabel(info.Config.Labels);
+      if (n !== null) return n;
+    } catch (err) {
+      if (!(isDockerError(err) && err.statusCode === 404)) throw err;
+    }
+    const vol = await this.#docker.getVolume(volumeName(appId)).inspect();
+    return fromLabel(vol.Labels ?? undefined) ?? this.#bytesPerDiskGb;
+  }
+
+  async #prepareAndMeasureVolume(appId: string): Promise<number> {
+    return this.#measureVolume(appId, true);
+  }
+
+  /**
+   * One-shot trusted helper (no network, read-only rootfs, only the caps it
+   * needs). `prepare` makes the volume root sticky world-writable so any
+   * non-root image USER can write (the volume is private to this app).
+   */
+  async #measureVolume(appId: string, prepare: boolean): Promise<number> {
+    await this.#ensureHelperImage();
+    const script = `${prepare ? "chmod 1777 /data && " : ""}du -sk /data`;
+    const helper = await this.#docker.createContainer({
+      Image: VOLUME_HELPER_IMAGE,
+      Cmd: ["sh", "-c", script],
+      Labels: { ...appLabels(appId), "scad.role": "volume-helper" },
+      HostConfig: {
+        NetworkMode: "none",
+        ReadonlyRootfs: true,
+        CapDrop: ["ALL"],
+        CapAdd: ["DAC_READ_SEARCH", "FOWNER"],
+        SecurityOpt: ["no-new-privileges:true"],
+        Binds: [`${volumeName(appId)}:/data:${prepare ? "rw" : "ro"}`],
+      },
+    });
+    try {
+      await helper.start();
+      const result = (await helper.wait()) as { StatusCode: number };
+      const logs = String(await helper.logs({ stdout: true, stderr: true }));
+      if (result.StatusCode !== 0) {
+        throw new Error(`volume helper failed for ${appId}`);
+      }
+      const m = /(\d+)\s+\/data/.exec(logs);
+      if (!m?.[1]) throw new Error("volume helper printed no usage");
+      return Number(m[1]) * 1024;
+    } finally {
+      await helper.remove({ force: true }).catch(() => undefined);
+    }
+  }
+
+  async #ensureHelperImage(): Promise<void> {
+    try {
+      await this.#docker.getImage(VOLUME_HELPER_IMAGE).inspect();
+      return;
+    } catch (err) {
+      if (!(isDockerError(err) && err.statusCode === 404)) throw err;
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.#docker.pull(VOLUME_HELPER_IMAGE, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        if (err) return reject(err);
+        this.#docker.modem.followProgress(stream, (e: Error | null) => (e ? reject(e) : resolve()));
+      });
+    });
+  }
+
   async #ensureNetwork(appId: string): Promise<void> {
     const name = networkName(appId);
     try {
@@ -237,7 +363,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     }
   }
 
-  async #ensureVolume(appId: string): Promise<void> {
+  async #ensureVolume(appId: string, diskGb: number): Promise<void> {
     const name = volumeName(appId);
     try {
       await this.#docker.getVolume(name).inspect();
@@ -250,7 +376,7 @@ export class DockerRuntimeProvider implements RuntimeProvider {
     try {
       await this.#docker.createVolume({
         Name: name,
-        Labels: appLabels(appId),
+        Labels: { ...appLabels(appId), [LABEL_DISK_BYTES]: String(diskGb * this.#bytesPerDiskGb) },
       });
     } catch (err) {
       if (isDockerError(err) && err.statusCode === 409) {

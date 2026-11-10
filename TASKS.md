@@ -98,14 +98,16 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
   - Done when: link arrives in Mailpit, works once, expires after 10 minutes, rate limits per email and IP; an unknown email still gets the same response (no account enumeration).
   - Tests: `apps/gateway/src/magic-link.integration.test.ts`. Docs: `docs/sign-in.md`. `/login` is now a chooser page; GitHub starts at `/login/github`.
 
-- [ ] **T1.2 Allowlists and sharing**
+- [x] **T1.2 Allowlists and sharing**
   - Depends: T0.7. Files: control plane share routes, CLI `share`/`unshare`/`ls`, gateway ACL, `app_access` migration.
   - Steps: share by email (user may not exist yet); first sign-in with that email links the account; `visibility=instance` option.
   - Done when: allowlisted friend gets in, others get 403; unshare takes effect within 5 seconds; owners cannot manage others' apps (INV10).
+  - Tests: `apps/gateway/src/sharing.integration.test.ts`, `packages/cli/src/share.test.ts`. Docs: `docs/sharing.md`. Adds `GET /v1/apps/:id/share` and `PATCH /v1/apps/:id {visibility}` to the §8 routes.
 
-- [ ] **T1.3 Persistent `/data` volume**
+- [x] **T1.3 Persistent `/data` volume**
   - Depends: T0.4. Files: runtime-docker, control plane.
   - Done when: a counter app's data survives stop/start and redeploy; `remove` with `deleteVolume: false` keeps data; volume size limit enforced.
+  - Tests: `packages/runtime-docker/src/volume.test.ts`. Docs: `docs/data-volume.md`. Size limit is **measured** (refuse start/deploy when over; `enforceVolumeQuota` stops a running app) because Docker local volumes have no hard quota. A periodic caller lands with the scheduler (T1.4/T2.5).
 
 - [ ] **T1.4 Idle stop and wake on request**
   - Depends: T0.7. Files: control plane scheduler (`last_request_at`), `/internal/wake`, gateway wake page.
