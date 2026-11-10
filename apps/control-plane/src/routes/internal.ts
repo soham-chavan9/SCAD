@@ -12,7 +12,12 @@ const resolveBody = z.object({
 });
 
 const wakeBody = z.object({ appId: z.uuid() });
-const touchBody = z.object({ appId: z.uuid(), userId: z.uuid() });
+/** `requests`: debounced request count from the gateway (defaults to 1). */
+const touchBody = z.object({
+  appId: z.uuid(),
+  userId: z.uuid(),
+  requests: z.number().int().min(1).max(1_000_000).optional(),
+});
 
 export type InternalRoutesOpts = {
   db: Db["db"];
@@ -153,7 +158,7 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
     if (!opts.machines) {
       throw new ApiError(503, "INTERNAL", "No runtime configured", "Start the control plane with a runtime.");
     }
-    await opts.machines.touch(parsed.data.appId, parsed.data.userId);
+    await opts.machines.touch(parsed.data.appId, parsed.data.userId, parsed.data.requests ?? 1);
     return { ok: true };
   });
 };

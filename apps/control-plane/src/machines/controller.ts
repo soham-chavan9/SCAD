@@ -125,7 +125,7 @@ export class MachineController {
    * viewed, renews its 30-day expiry (D8), and counts the viewer for usage.
    * Apps that already expired, were suspended, or deleted are not renewed.
    */
-  async touch(appId: string, userId?: string): Promise<void> {
+  async touch(appId: string, userId?: string, requests = 1): Promise<void> {
     const now = this.#now();
     await this.#db.update(machines).set({ lastRequestAt: now }).where(eq(machines.appId, appId));
     await this.#db
@@ -135,10 +135,10 @@ export class MachineController {
     if (userId) {
       await this.#db
         .insert(usageViewers)
-        .values({ appId, day: utcDay(now), userId, requests: 1 })
+        .values({ appId, day: utcDay(now), userId, requests })
         .onConflictDoUpdate({
           target: [usageViewers.appId, usageViewers.day, usageViewers.userId],
-          set: { requests: sql`${usageViewers.requests} + 1` },
+          set: { requests: sql`${usageViewers.requests} + ${requests}` },
         });
     }
   }

@@ -175,13 +175,13 @@ describe.runIf(Boolean(databaseUrl))("gateway wake on request (T1.4)", () => {
         });
         if (res.statusCode !== 200) throw new Error(`wake ${res.statusCode}`);
       },
-      async touch(id: string, userId: string) {
+      async touch(id: string, userId: string, requests: number) {
         touchCalls += 1;
         await controlPlane.inject({
           method: "POST",
           url: "/internal/touch",
           headers: { "x-scad-internal-secret": INTERNAL_SECRET },
-          payload: { appId: id, userId },
+          payload: { appId: id, userId, requests },
         });
       },
     };

@@ -5,7 +5,7 @@ import type { ResolvedApp } from "./resolve.js";
 export const WAKE_BUDGET_MS = 15_000;
 /** HTML navigations get the self-retrying wait page after this short hold. */
 export const HTML_HOLD_MS = 3_000;
-/** At most one touch per app per window (§9 step 8 "debounced"). */
+/** At most one touch per viewer per app per window (§9 step 8 "debounced"); later requests are counted and sent at the window's end. */
 export const TOUCH_DEBOUNCE_MS = 30_000;
 /** Matches the resolve cache TTL: a stale "stopped" status is ignored this long after a wake. */
 const AWAKE_MEMO_MS = 30_000;
@@ -13,7 +13,8 @@ const AWAKE_MEMO_MS = 30_000;
 /** Gateway → control plane machine calls (§8 internal routes). */
 export type MachineClient = {
   wake(appId: string): Promise<void>;
-  touch(appId: string, userId: string): Promise<void>;
+  /** `requests`: how many requests this touch stands for (debounced ones included). */
+  touch(appId: string, userId: string, requests: number): Promise<void>;
 };
 
 export function createHttpMachineClient(opts: {
@@ -38,7 +39,7 @@ export function createHttpMachineClient(opts: {
   }
   return {
     wake: (appId) => post("/internal/wake", { appId }),
-    touch: (appId, userId) => post("/internal/touch", { appId, userId }),
+    touch: (appId, userId, requests) => post("/internal/touch", { appId, userId, requests }),
   };
 }
 
@@ -76,7 +77,8 @@ export class WakeCoordinator {
   readonly #readyTimeoutMs: number;
   readonly #inflight = new Map<string, Promise<void>>();
   readonly #awakeAt = new Map<string, number>();
-  readonly #touchedAt = new Map<string, number>();
+  /** Open debounce windows, keyed by app and viewer; `pending` counts requests not yet sent. */
+  readonly #touchWindows = new Map<string, { pending: number }>();
 
   constructor(opts: { client: MachineClient; readyTimeoutMs?: number }) {
     this.#client = opts.client;
@@ -128,15 +130,32 @@ export class WakeCoordinator {
     }
   }
 
-  /** Fire-and-forget, at most once per app per debounce window. */
+  /**
+   * Fire-and-forget usage + keep-awake signal. The first request from a viewer
+   * is sent at once; further requests from that viewer within the debounce
+   * window are counted and sent as one touch when the window closes, so every
+   * viewer and every request reaches the usage counters (§9 step 8).
+   */
   touch(appId: string, userId: string): void {
-    const now = Date.now();
-    const last = this.#touchedAt.get(appId);
-    if (last !== undefined && now - last < TOUCH_DEBOUNCE_MS) return;
-    this.#touchedAt.set(appId, now);
-    this.#client.touch(appId, userId).catch(() => {
-      this.#touchedAt.delete(appId);
-    });
+    const key = `${appId} ${userId}`;
+    const open = this.#touchWindows.get(key);
+    if (open) {
+      open.pending += 1;
+      return;
+    }
+    const window = { pending: 0 };
+    this.#touchWindows.set(key, window);
+    this.#sendTouch(appId, userId, 1);
+    const timer = setTimeout(() => {
+      this.#touchWindows.delete(key);
+      if (window.pending > 0) this.#sendTouch(appId, userId, window.pending);
+    }, TOUCH_DEBOUNCE_MS);
+    timer.unref();
+  }
+
+  #sendTouch(appId: string, userId: string, requests: number): void {
+    // Best effort: a lost touch only undercounts usage; the next window retries keep-awake.
+    this.#client.touch(appId, userId, requests).catch(() => undefined);
   }
 }
 
