@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
   DeploySpec,
@@ -10,7 +10,7 @@ import type {
 import { buildApp } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { apps, machines, users } from "./db/schema.js";
+import { apps, auditEvents, machines, users } from "./db/schema.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
 import { IDLE_STOP_MS, MachineController } from "./machines/controller.js";
 
@@ -141,6 +141,40 @@ describe.runIf(Boolean(databaseUrl))("idle stop and wake (T1.4)", () => {
     const row = await machine(idle);
     expect(row.machine?.state).toBe("stopped");
     expect(row.app?.status).toBe("stopped");
+  });
+
+  it("the quota sweep stops a busy app whose /data is over its limit (T1.3)", async () => {
+    const now = new Date("2026-11-07T12:00:00Z");
+    const over = await seedApp({ slug: "over-quota", state: "running", lastRequestAt: now });
+    const fine = await seedApp({ slug: "under-quota", state: "running", lastRequestAt: now });
+    const checked: string[] = [];
+    const quotaRuntime = Object.assign(runtime, {
+      async enforceVolumeQuota(m: MachineRef): Promise<"ok" | "stopped"> {
+        checked.push(m.appId);
+        if (m.appId !== over) return "ok";
+        await runtime.stop(m);
+        return "stopped";
+      },
+    });
+    const controller = new MachineController({ db: dbBundle.db, runtime: quotaRuntime, now: () => now });
+
+    expect(await controller.enforceVolumeQuotas()).toEqual([over]);
+    expect(checked.sort()).toEqual([over, fine].sort());
+    const stopped = await machine(over);
+    expect(stopped.machine?.state).toBe("stopped");
+    expect(stopped.app?.status).toBe("stopped");
+    expect((await machine(fine)).app?.status).toBe("running");
+    const [audit] = await dbBundle.db
+      .select()
+      .from(auditEvents)
+      .where(and(eq(auditEvents.appId, over), eq(auditEvents.action, "app.quota_stop")));
+    expect(audit).toBeDefined();
+  });
+
+  it("the quota sweep is a no-op for a runtime without quota support", async () => {
+    await seedApp({ slug: "no-quota", state: "running", lastRequestAt: new Date() });
+    const controller = new MachineController({ db: dbBundle.db, runtime });
+    expect(await controller.enforceVolumeQuotas()).toEqual([]);
   });
 
   it("never stops a pinned app", async () => {

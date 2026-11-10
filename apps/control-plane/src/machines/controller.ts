@@ -1,17 +1,19 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { deploySpecFromManifest } from "@scad/shared";
-import type { RuntimeProvider } from "@scad/runtime-conformance";
+import type { ManagedRuntime } from "@scad/runtime-conformance";
 import type { Db } from "../db/client.js";
-import { apps, machines, releases, usageViewers } from "../db/schema.js";
+import { apps, auditEvents, machines, releases, usageViewers } from "../db/schema.js";
 import { renewedExpiry, utcDay } from "../lifecycle/policy.js";
 import { ApiError } from "../errors.js";
 
 /** AGENTS §14 default: stop an app after 10 minutes without traffic. */
 export const IDLE_STOP_MS = 10 * 60_000;
+/** How often running apps' /data volumes are measured against their limit (T1.3). */
+export const VOLUME_QUOTA_SWEEP_MS = 5 * 60_000;
 
 export type MachineControllerOpts = {
   db: Db["db"];
-  runtime: RuntimeProvider;
+  runtime: ManagedRuntime;
   now?: () => Date;
   idleMs?: number;
   /** Told when a machine is (re)started so its output is collected at once (T1.7b). */
@@ -26,7 +28,7 @@ type Op = { kind: "wake" | "stop" | "deploy"; done: Promise<unknown> };
  */
 export class MachineController {
   readonly #db: Db["db"];
-  readonly #runtime: RuntimeProvider;
+  readonly #runtime: ManagedRuntime;
   readonly #now: () => Date;
   readonly #idleMs: number;
   readonly #ops = new Map<string, Op>();
@@ -192,6 +194,46 @@ export class MachineController {
     return stopped;
   }
 
+  /**
+   * Stop every running app whose `/data` volume is over its limit (the measured
+   * quota, T1.3), so an app that keeps getting traffic cannot fill the disk.
+   * No-op for a runtime without quota support. Returns stopped app ids.
+   */
+  async enforceVolumeQuotas(): Promise<string[]> {
+    const runtime = this.#runtime;
+    if (!runtime.enforceVolumeQuota) return [];
+    const candidates = await this.#db
+      .select({ appId: machines.appId, providerId: machines.providerId })
+      .from(machines)
+      .innerJoin(apps, eq(apps.id, machines.appId))
+      .where(and(eq(machines.state, "running"), eq(apps.status, "running")));
+
+    const stopped: string[] = [];
+    for (const row of candidates) {
+      if (this.#ops.has(row.appId) || !row.providerId) continue;
+      const ref = { appId: row.appId, providerId: row.providerId };
+      const done = (async () => {
+        if ((await runtime.enforceVolumeQuota!(ref)) !== "stopped") return false;
+        await this.#db.update(machines).set({ state: "stopped" }).where(eq(machines.appId, row.appId));
+        await this.#db
+          .update(apps)
+          .set({ status: "stopped" })
+          .where(and(eq(apps.id, row.appId), eq(apps.status, "running")));
+        await this.#db
+          .insert(auditEvents)
+          .values({ actorId: null, appId: row.appId, action: "app.quota_stop", metadata: {} });
+        return true;
+      })();
+      this.#track(row.appId, { kind: "stop", done });
+      try {
+        if (await done) stopped.push(row.appId);
+      } catch {
+        // Measuring failed; the next sweep retries.
+      }
+    }
+    return stopped;
+  }
+
   #track(appId: string, op: Op): void {
     this.#ops.set(appId, op);
     void op.done
@@ -269,17 +311,29 @@ export function startIdleStopper(
   controller: MachineController,
   opts: { intervalMs?: number; onError?: (err: unknown) => void } = {},
 ): () => void {
+  return everyInterval(() => controller.stopIdle(), opts.intervalMs ?? 60_000, opts.onError);
+}
+
+/** Run `enforceVolumeQuotas` on an interval (default every 5 minutes). Returns a stop function. */
+export function startVolumeQuotaSweep(
+  controller: MachineController,
+  opts: { intervalMs?: number; onError?: (err: unknown) => void } = {},
+): () => void {
+  return everyInterval(() => controller.enforceVolumeQuotas(), opts.intervalMs ?? VOLUME_QUOTA_SWEEP_MS, opts.onError);
+}
+
+/** Run `work` every `ms`, never overlapping itself. */
+function everyInterval(work: () => Promise<unknown>, ms: number, onError?: (err: unknown) => void): () => void {
   let running = false;
   const timer = setInterval(() => {
     if (running) return;
     running = true;
-    controller
-      .stopIdle()
-      .catch((err: unknown) => opts.onError?.(err))
+    work()
+      .catch((err: unknown) => onError?.(err))
       .finally(() => {
         running = false;
       });
-  }, opts.intervalMs ?? 60_000);
+  }, ms);
   timer.unref();
   return () => clearInterval(timer);
 }

@@ -34,9 +34,12 @@ sized image (`loop: invalid argument`, checked on Docker Desktop 29.9) and
   old container is removed, so the previous release keeps serving. The builder
   reports it as `LIMIT_EXCEEDED` with a hint.
 - `enforceVolumeQuota(machine)` stops a running app that has grown past its
-  limit (to be called by the lifecycle scheduler, T1.4/T2.5).
+  limit. The control plane's volume quota sweep calls it for every running app
+  every 5 minutes, marks the stopped app `stopped`, and writes an
+  `app.quota_stop` audit row. The app can't start again until its data is back
+  under the limit (or the limit is raised and the app republished).
 
-Between checks a running app can write past the limit.
+Between checks (up to 5 minutes) a running app can write past the limit.
 
 **Decision (human, Nov 8): measured, not hard; revisit with the M3 provider.**
 The measured limit is accepted for local use and M2. A hard limit needs a

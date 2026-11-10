@@ -7,7 +7,7 @@ import { startLogRetention } from "./log-retention.js";
 import { createDataPaths } from "./storage.js";
 import { createDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { MachineController, startIdleStopper } from "./machines/controller.js";
+import { MachineController, startIdleStopper, startVolumeQuotaSweep } from "./machines/controller.js";
 import { masterKeyRingFromEnv } from "./secrets/rotate.js";
 import { LifecycleJobs, startLifecycleJobs } from "./lifecycle/jobs.js";
 import { defaultFromAddress, LogMailer, SmtpMailer } from "./lifecycle/mailer.js";
@@ -50,6 +50,8 @@ async function main(): Promise<void> {
     },
   });
   startIdleStopper(machines, { onError: logError("idle stopper") });
+  // T1.3 measured quota: stop running apps whose /data grew past its limit.
+  startVolumeQuotaSweep(machines, { onError: logError("volume quota sweep") });
 
   // T2.5: expiry warnings, expiry, grace-period deletion, orphan reaper, usage roll-up.
   const baseDomain = process.env["BASE_DOMAIN"] ?? "localhost:8080";
