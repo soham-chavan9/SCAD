@@ -33,10 +33,38 @@ export type BuildGatewayOptions = {
   htmlHoldMs?: number;
   /** OPERATOR_EMAILS: may always create an account; everyone else needs an invite or a share (T2.6). */
   operatorEmails?: Iterable<string>;
+  /**
+   * Reverse proxies in front of the gateway whose X-Forwarded-For to trust
+   * (T3.1: Caddy). A comma list of IPs/CIDRs. Without it, every viewer
+   * would share the proxy's IP in per-IP rate limits.
+   */
+  trustProxy?: string;
 };
 
+/**
+ * Parse GATEWAY_TRUST_PROXY: a comma list of proxy IPs/CIDRs (deploy/ pins
+ * Caddy's address). Unset or empty trusts nothing. Hop counts and `true` are
+ * refused: they would let anyone who reaches the gateway pick their own IP.
+ */
+export function parseTrustProxy(value: string | undefined): string | undefined {
+  const list = (value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (list.length === 0) return undefined;
+  for (const entry of list) {
+    if (!/^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(entry) || /^\d+$/.test(entry)) {
+      throw new Error(`GATEWAY_TRUST_PROXY must list proxy IPs or CIDRs (got ${JSON.stringify(entry).slice(0, 60)})`);
+    }
+  }
+  return list.join(",");
+}
+
 export async function buildGateway(opts: BuildGatewayOptions) {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: false,
+    ...(opts.trustProxy !== undefined ? { trustProxy: opts.trustProxy } : {}),
+  });
   await app.register(cookie);
   await app.register(replyFrom);
 

@@ -61,7 +61,9 @@ Local services:
 | Mailpit | 8025 | sign-in emails land here (SMTP on 1025) |
 
 Operating it (backups, restore, key rotation, suspending and deleting users,
-disaster reset): [`docs/runbook.md`](docs/runbook.md).
+disaster reset): [`docs/runbook.md`](docs/runbook.md). Putting it on the
+internet with `https://` links (a free VM, DuckDNS, Gmail):
+[`docs/deploy.md`](docs/deploy.md).
 
 ### Hostnames
 
@@ -74,6 +76,7 @@ apps/          control-plane, gateway, builder, egress-proxy
 packages/      shared, cli, mcp-server, api-client, runtime-*
 tests/         e2e, adversarial
 examples/      hello-node, hello-python, hello-static, echo-identity, counter-sqlite, adversarial/*
+deploy/        production Compose, Caddyfile, firewall, systemd units, backups
 docs/          feature docs, runbook, build schedule (index: docs/README.md)
 ```
 

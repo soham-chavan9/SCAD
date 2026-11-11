@@ -27,6 +27,17 @@ export function isLoopbackIp(ip: string | undefined): boolean {
   return host === "127.0.0.1" || host === "::1";
 }
 
+/**
+ * True when the request came through a reverse proxy (T3.1). Behind the TLS
+ * front, a proxy running on this host would make every remote caller look
+ * like loopback, so any forwarding header disqualifies local approval.
+ */
+export function cameThroughProxy(headers: Record<string, string | string[] | undefined>): boolean {
+  return ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip", "via"].some(
+    (name) => headers[name] !== undefined,
+  );
+}
+
 function emailToHandle(email: string): string {
   const local = email.split("@")[0] ?? "user";
   const cleaned = local
@@ -96,7 +107,7 @@ export const authDeviceRoutes: FastifyPluginAsync<AuthDeviceRoutesOpts> = async 
         throw validationFailed("user_code and email are required");
       }
 
-      if (!isLoopbackIp(request.ip)) {
+      if (!isLoopbackIp(request.ip) || cameThroughProxy(request.headers)) {
         throw new ApiError(
           403,
           "FORBIDDEN",

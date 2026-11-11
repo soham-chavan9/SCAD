@@ -20,4 +20,5 @@ Canonical agent brief and build plan live at the repo root:
 - [`build-schedule.md`](build-schedule.md) — daily build log, PR links, items blocked on the human
 
 - [`runbook.md`](runbook.md) — back up, restore, rotate keys, suspend and delete user data, disaster reset
+- [`deploy.md`](deploy.md) — production on one free VM: Caddy on-demand TLS, `deploy/compose.yml`, firewall, backups
 - [`m3-plan.md`](m3-plan.md) — M3 founder plan: share a website by link; stages, CTO decisions, risks
