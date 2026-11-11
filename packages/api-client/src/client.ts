@@ -108,6 +108,15 @@ export class ScadApiError extends Error {
   }
 }
 
+export type RollbackResult = {
+  app_id: string;
+  slug: string;
+  url: string | null;
+  release: { id: string; version: number };
+  previous: { id: string; version: number };
+  message: string;
+};
+
 export class ScadClient {
   readonly baseUrl: string;
   pat: string | undefined;
@@ -187,6 +196,11 @@ export class ScadClient {
   /** §8 DELETE /apps/:id: removes the app, its container, and its /data volume. */
   async deleteApp(idOrSlug: string): Promise<{ app_id: string; slug: string; status: "deleted" }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, { method: "DELETE", auth: true });
+  }
+
+  /** T3.6 POST /apps/:id/rollback: serve the release before the current one again. */
+  async rollback(idOrSlug: string): Promise<RollbackResult> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/rollback`, { method: "POST", auth: true });
   }
 
   async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string }> {

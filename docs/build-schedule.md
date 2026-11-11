@@ -556,7 +556,8 @@ started.
 
 | Task | Status | Branch | PR | Notes |
 |---|---|---|---|---|
-| T3.1 Public hosting at $0 | code done, live checks need founder | `task/t3-1-hosting` | (this PR) | Checkbox left unticked: the live acceptance needs the founder's accounts |
+| T3.1 Public hosting at $0 | code done, live checks need founder | `task/t3-1-hosting` | see PR list | Checkbox left unticked: the live acceptance needs the founder's accounts |
+| T3.6 Rollback | code done, founder check pending | `task/t3-6-rollback` | see PR list | Automated equivalent of the founder check passes on real Docker |
 
 **T3.1 notes.** Built host-agnostic and proved locally:
 
@@ -598,6 +599,18 @@ IP (two-level names), (2) the phone-on-mobile-data check with a real email,
 `deploy/firewall.sh` on the real VM and the adversarial suite there (INV1 on
 Linux: an app container must not reach the host's port 4000 or SSH). None of
 these could run here.
+
+**T3.6 notes.** `POST /v1/apps/:id/rollback`, `scad rollback <app>`, MCP
+`rollback`. New column `apps.current_release_id` (migration 0009, with down)
+so "current" survives a rollback: a successful build sets it, rollback moves
+it back, and resolve (port), env redeploys, and wake all serve it. Rolling back
+twice goes two versions back (not a toggle). `/data` is never touched; env
+vars are today's. Audit row `app.rollback`. Real Docker e2e: publish
+`counter-sqlite`, publish a broken update, roll back through MCP, the old
+code answers and the counter kept counting. **Needs founder:** the stage 6
+check itself (publish a broken change and undo it by asking the agent); the
+checkbox stays unticked until then. Merge note: track B may also add a
+migration numbered 0009; renumber whichever lands second.
 
 ## Blocked: needs human
 

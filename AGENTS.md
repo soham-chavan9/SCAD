@@ -126,6 +126,7 @@ users        id uuid pk, email text unique, display_name, github_id text null, h
              role enum(operator|member), status enum(active|suspended), created_at
 apps         id uuid pk, slug text, owner_id fk, status enum(building|running|stopped|suspended|expired|deleted),
              visibility enum(allowlist|instance|public) default allowlist, created_at, last_viewed_at, expires_at, pinned bool default false,
+             current_release_id fk null,                                          -- T3.6 release being served
              unique(owner_id, slug)
 releases     id uuid pk, app_id fk, version int, image_ref, manifest jsonb, status enum(building|ready|failed),
              build_log_ref, error jsonb null, created_at, unique(app_id, version)
@@ -163,7 +164,7 @@ DELETE /apps/:id/share/:email
 PUT    /apps/:id/env                {KEY: value} + {secret?: string[]}
 GET    /apps/:id/env                -> key names (+ values of non-secret vars only; secret values are never returned)
 GET    /apps/:id/logs               SSE runtime log
-POST   /apps/:id/rollback           (M3)
+POST   /apps/:id/rollback           (T3.6) serve the ready release before the current one; /data kept
 POST   /apps/:id/transfer           {email} (M3)
 DELETE /apps/:id
 GET    /admin/users                 (T2.6) every user with role + status

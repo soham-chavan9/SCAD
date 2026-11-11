@@ -13,12 +13,13 @@ export const TOOL_NAMES = [
   "set_env",
   "get_logs",
   "delete_app",
+  "rollback",
 ] as const;
 
 /** The API calls the tools need (a `ScadClient` satisfies it). */
 export type ScadMcpClient = Pick<
   ScadClient,
-  "listApps" | "getApp" | "shareApp" | "unshareApp" | "setEnv" | "streamLogs" | "deleteApp"
+  "listApps" | "getApp" | "shareApp" | "unshareApp" | "setEnv" | "streamLogs" | "deleteApp" | "rollback"
 > &
   Partial<Pick<ScadClient, "listShares">>;
 
@@ -238,6 +239,22 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
       }
       return run(() => client.deleteApp(app));
     },
+  );
+
+  server.registerTool(
+    "rollback",
+    {
+      description:
+        "Undo the last update to a site: go back to the version that was live before the current one, in one " +
+        "step. Use it when the person says something like \"that update broke it, go back\". The site's saved " +
+        "data (/data) and env vars are kept; only the code goes back. Calling it again goes one more version " +
+        "back; the next publish becomes the live version again. Inputs: app. Returns {message, url, release " +
+        "(now live), previous}. Tell the person the message in plain words. Errors: VALIDATION_FAILED (no earlier " +
+        "working version: fix the files and publish again), APP_SUSPENDED (the operator switched the site off), " +
+        `${ERRORS_COMMON}`,
+      inputSchema: { app: appRef },
+    },
+    ({ app }) => run(() => client.rollback(app)),
   );
 
   return server;

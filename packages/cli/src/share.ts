@@ -1,4 +1,4 @@
-import { ScadClient, type AppShares, type AppSummary } from "@scad/api-client";
+import { ScadClient, type AppShares, type AppSummary, type RollbackResult } from "@scad/api-client";
 import { loadConfig } from "./config.js";
 
 export type ClientOptions = {
@@ -47,4 +47,9 @@ export async function setVisibility(
   opts: ClientOptions & { app: string; visibility: "allowlist" | "instance" },
 ): Promise<{ id: string; slug: string; visibility: "allowlist" | "instance" }> {
   return (await (await client(opts)).setVisibility(opts.app, opts.visibility)).app;
+}
+
+/** T3.6: go back to the release before the current one ("that update broke it"). */
+export async function rollbackApp(opts: ClientOptions & { app: string }): Promise<RollbackResult> {
+  return (await client(opts)).rollback(opts.app);
 }

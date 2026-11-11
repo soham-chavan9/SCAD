@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,11 +14,31 @@ import { Builder } from "@scad/builder";
 import { loginWithDeviceCode, loadConfig, publishDir } from "@scad/cli";
 import { assertTruncateAllowed, buildApp, createDb, runMigrations, type Db } from "@scad/control-plane";
 import { createScadMcpServer } from "@scad/mcp-server";
-import { DockerRuntimeProvider } from "@scad/runtime-docker";
+import { containerName, DockerRuntimeProvider, networkName } from "@scad/runtime-docker";
 
 const databaseUrl = process.env["DATABASE_URL"];
 /** Repo root, independent of the working directory vitest runs from. */
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+const execFileAsync = promisify(execFile);
+
+/** GET a path from inside the app's own network (apps are not reachable from the host). */
+async function getFromApp(appId: string, path = "/"): Promise<string> {
+  let last = "";
+  for (let i = 0; i < 40; i++) {
+    try {
+      const { stdout } = await execFileAsync("docker", [
+        "run", "--rm", "--network", networkName(appId), "busybox:1.36",
+        "wget", "-qO-", "-T", "2", `http://${containerName(appId)}:8080${path}`,
+      ]);
+      return stdout;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  throw new Error(`app ${appId} never answered: ${last.slice(0, 200)}`);
+}
 
 type ToolText = { content: { type: string; text: string }[]; isError?: boolean };
 
@@ -172,6 +194,49 @@ describe.runIf(Boolean(databaseUrl))("MCP agent session (T1.8, real Docker)", ()
       expect(second.isError).toBe(false);
       expect(second.body).toMatchObject({ url: "http://agent-fix.agent.localhost:8080" });
       appIds.push(String(second.body["app_id"]));
+    },
+    300_000,
+  );
+
+  it(
+    "undoes a broken update with the rollback tool and keeps /data (T3.6)",
+    async () => {
+      const dir = await mkdtemp(join(dataDir, "undo-"));
+      await cp(join(REPO_ROOT, "examples/counter-sqlite"), dir, { recursive: true });
+
+      const v1 = await call("publish", { dir, name: "undo-demo" });
+      expect(v1.isError).toBe(false);
+      const appId = String(v1.body["app_id"]);
+      appIds.push(appId);
+      // The builder's smoke check may already have counted a visit.
+      const count = async (path: string) => (JSON.parse(await getFromApp(appId, path)) as { count: number }).count;
+      const before = await count("/peek");
+      expect(await count("/")).toBe(before + 1);
+
+      // The "broken" update: it builds and runs, but serves the wrong thing.
+      const server = await readFile(join(dir, "server.js"), "utf8");
+      await writeFile(
+        join(dir, "server.js"),
+        server.replace("res.end(JSON.stringify({ count: row.n }));", 'res.end("oops, broken");'),
+      );
+      const v2 = await call("publish", { dir, name: "undo-demo" });
+      expect(v2.isError).toBe(false);
+      expect(await getFromApp(appId)).toBe("oops, broken");
+
+      // "That update broke it, go back."
+      const undo = await call("rollback", { app: "undo-demo" });
+      expect(undo.isError).toBe(false);
+      expect(undo.body).toMatchObject({ release: { version: 1 }, previous: { version: 2 } });
+      // Old code again, and the /data counter kept going: the broken release's
+      // visit counted too, so nothing was reset by either deploy.
+      const after = await count("/peek");
+      expect(after).toBeGreaterThanOrEqual(before + 2);
+      expect(await count("/")).toBe(after + 1);
+
+      // Nothing earlier than v1: the tool says so with a hint.
+      const again = await call("rollback", { app: "undo-demo" });
+      expect(again.isError).toBe(true);
+      expect(again.body).toMatchObject({ code: "VALIDATION_FAILED", hint: expect.stringMatching(/publish again/) });
     },
     300_000,
   );

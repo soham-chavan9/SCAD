@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { applyManifestDefaults, isHandle, isSlug, type ManifestInput } from "@scad/shared";
 import type { Db } from "../db/client.js";
-import { apps, releases, users } from "../db/schema.js";
+import { apps, users } from "../db/schema.js";
+import { currentRelease } from "../releases/current.js";
 import { ApiError, unauthenticated, validationFailed } from "../errors.js";
 import type { MachineController } from "../machines/controller.js";
 
@@ -112,14 +113,8 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
         throw new ApiError(404, "NOT_FOUND", "Unknown app", "Check the app URL.", {});
       }
 
-      const ready = await opts.db
-        .select({ manifest: releases.manifest })
-        .from(releases)
-        .where(and(eq(releases.appId, row.appId), eq(releases.status, "ready")))
-        .orderBy(desc(releases.version))
-        .limit(1);
-
-      const port = portFromManifest(ready[0]?.manifest);
+      const current = await currentRelease(opts.db, row.appId);
+      const port = portFromManifest(current?.manifest);
 
       return {
         appId: row.appId,

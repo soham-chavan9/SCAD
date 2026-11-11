@@ -22,6 +22,7 @@ import { internalBuildsRoutes } from "./routes/internal-builds.js";
 import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
+import { rollbackRoutes } from "./routes/rollback.js";
 import { shareRoutes } from "./routes/share.js";
 import { tlsAskRoutes } from "./routes/tls-ask.js";
 import type { MasterKeyRing } from "./secrets/crypto.js";
@@ -135,6 +136,12 @@ export async function buildApp(opts: BuildAppOptions) {
     ...(opts.maxLiveApps !== undefined ? { maxLiveApps: opts.maxLiveApps } : {}),
   });
   await app.register(releasesRoutes, { db: opts.db, paths });
+  await app.register(rollbackRoutes, {
+    db: opts.db,
+    baseDomain,
+    ...(machines ? { machines } : {}),
+    ...(opts.masterKeys ? { masterKeys: opts.masterKeys } : {}),
+  });
   await app.register(internalBuildsRoutes, {
     db: opts.db,
     paths,
