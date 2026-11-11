@@ -86,7 +86,9 @@ const LABEL_DISK_BYTES = "scad.disk_bytes";
 const SMOKE_PROBE_SCRIPT = [
   'end=$(( $(date +%s) + $3 ))',
   'while [ "$(date +%s)" -lt "$end" ]; do',
-  "  code=$(printf 'GET / HTTP/1.0\\r\\nHost: smoke\\r\\n\\r\\n' | nc -w 2 \"$1\" \"$2\" 2>/dev/null | head -n 1 | cut -d' ' -f2)",
+  // Keep nc's stdin open briefly: busybox nc hangs up at stdin EOF, which
+  // loses the reply of any server that answers asynchronously (T3.2/T3.3).
+  "  code=$( (printf 'GET / HTTP/1.0\\r\\nHost: smoke\\r\\n\\r\\n'; sleep 1) | nc -w 2 \"$1\" \"$2\" 2>/dev/null | head -n 1 | cut -d' ' -f2)",
   '  case "$code" in',
   '    [1-4][0-9][0-9]) echo "SMOKE_STATUS=$code"; exit 0 ;;',
   '    5[0-9][0-9]) echo "SMOKE_STATUS=$code" ;;',
