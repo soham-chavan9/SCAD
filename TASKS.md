@@ -192,14 +192,64 @@ Legend: **Files** = where work happens. **Done when** = the acceptance checks, a
 
 ---
 
-## M3: Beyond local (only after M2; ask the human before starting)
+## M3: Share a website with a link (human approved Nov 11)
 
-- [ ] **T3.1 Public hosting plan.** Human decides domain and method (home machine with a tunnel, VPS, or cloud). Deliver: deployment guide, TLS for the wildcard domain, hardened gateway and control plane config. No code that hardcodes a host.
-- [ ] **T3.2 Fly driver.** `packages/runtime-fly` passes the same conformance suite; must verify four things first and report results: egress control, per-app private networking, volume semantics, scale-to-zero latency. Include a hard **spending cap and per-app budget alert** before first real deploy.
-- [ ] **T3.3 Generic OIDC providers** (Google Workspace, Entra, Okta) as configuration.
-- [ ] **T3.4 Rollback and ownership transfer.**
-- [ ] **T3.5 Volume snapshots** (nightly, 7-day retention; note provider snapshot costs).
-- [ ] **T3.6 Image scanning** as a publish-time warning.
+SCAD's M3 promise: **a non-technical founder builds a website with an AI agent on their laptop and sends friends an https link to a hosted copy, with no hosting setup.** Flow: vibe code, ask the agent to publish the local folder through SCAD's MCP tools, get a link. GitHub features are M4. Scope is **every kind of website**: plain pages, static builds from any common framework or generator, and server-rendered JS sites (Next.js, Nuxt, SvelteKit, Remix, Astro SSR). Apps with a backend (APIs, databases, Python/PHP servers) move to M4. Code for all stages is built overnight Nov 11 as one PR per task; deploy and founder checks follow in the morning. Founder plan, CTO decisions, and risks: `docs/m3-plan.md`.
+
+Decisions (Nov 11): a hosted copy, not a live tunnel; every kind of website in M3, backend apps in M4; $0 hosting on an Oracle Cloud Always Free VM (this Mac as fallback); a DuckDNS subdomain; Gmail SMTP for magic links; MCP-first; only the founder publishes; links are private by default, and the agent asks whether a site should be public instead (T3.5; AGENTS §3 and §7 updated); a trusted fetch step for build dependencies (Blocked option c); publishing from a GitHub repo URL moved to M4 (T4.7). Each stage ends with a check the founder runs. Old M3 IDs: T3.1 kept; Fly → M4 T4.6; OIDC → M4 T4.4; rollback → T3.6; snapshots → M4 T4.3; image scanning → M4 T4.5.
+
+### Stage 1: a link that works for anyone
+
+- [ ] **T3.1 Public hosting at $0**
+  - Files: `deploy/` (production Compose, Caddy config), gateway/control-plane config, `docs/deploy.md`.
+  - Steps: a TLS front (Caddy) with on-demand certificates that asks the control plane whether a hostname is the auth host, the API host, or a live app before issuing; `BASE_DOMAIN` and every public URL come from env (the Compose file hardcodes `localhost:8080` today); an `api.{BASE_DOMAIN}` host so the CLI and MCP reach the control plane remotely; production config: fake auth refused, Gmail SMTP (app password supplied by the founder) for magic links, only 80/443 open, Postgres/builder/control-plane internals not exposed; backups of `MASTER_KEY`, JWT keys, and Postgres (runbook); arm64 images; gVisor run for real on the Linux host (closes Blocked #6). Verify first that DuckDNS resolves two-level names (`{slug}.{owner}.{name}.duckdns.org`).
+  - Founder step (they enter all cards and passwords): Oracle account and VM, DuckDNS name, Gmail app password.
+  - Done when: a phone on mobile data opens `https://{slug}.{owner}.{BASE_DOMAIN}`, gets a magic link by real email, and sees `hello-static`; an unknown hostname gets no certificate; the adversarial suite passes on the host; `docs/deploy.md` takes a fresh VM to a live link.
+
+### Stage 2: every static website builds
+
+- [ ] **T3.2 Static site builds with a trusted dependency fetch**
+  - Depends: T2.4. Steps: a trusted fetch container with registry-only egress (npm, and RubyGems for Jekyll) runs before the `--network=none` build: `npm ci --ignore-scripts` from the lockfile (npm, pnpm, yarn, bun lockfiles; `--package-lock-only --ignore-scripts` first when there is none) and `bundle cache` for Jekyll; pinned Hugo binary from a checksum-verified release; size and time caps; the fetch never sees platform secrets. The build runs the `build` script offline, then the image keeps only the output folder behind the existing static server, with single-page-app fallback to `index.html`. Detect: Vite (React, Vue, Svelte, Solid, Preact), Create React App, Angular, Astro (static), Gatsby, Docusaurus, VitePress, Eleventy, Next.js `output: "export"`, Nuxt `generate`, SvelteKit `adapter-static`, Hugo, Jekyll; unknown frameworks fall back to `npm run build` plus the first of `dist/`, `build/`, `out/`, `public/`, `_site/`. Packages that need install scripts or native builds fail with a hint naming the package.
+  - Done when: one example per framework family publishes with no Dockerfile and no `scad.json` (`hello-vite`, `hello-vue`, `hello-svelte`, `hello-angular`, `hello-astro`, `hello-docusaurus`, `hello-next-export`, `hello-hugo`, `hello-jekyll`); client-side routes reload without 404; the build step still has no network (INV8 test unchanged and green); a `postinstall` script does not run; a fetch to a non-registry host is refused.
+
+### Stage 3: server-rendered websites
+
+- [ ] **T3.3 Server-rendered JS sites**
+  - Depends: T3.2. Steps: Next.js (standalone output), Nuxt (Nitro node server), SvelteKit (`adapter-node`), Remix/React Router, Astro (node adapter) run on the Node template with production `node_modules` from the fetch step, listening on `PORT`, under the same hardened profile and egress rules. Where a project is missing the node adapter or standalone setting, the build adds it without editing the founder's files, or the hint says what to change. Projects that are backend apps (an Express/Fastify/Flask `start` with no site framework) get a hint that backend apps come in M4.
+  - Done when: `hello-next`, `hello-nuxt`, `hello-sveltekit`, `hello-remix`, `hello-astro-ssr` publish with no Dockerfile, render server-side pages, and wake from idle within the 15 s budget. Founder check: a Next.js site freshly generated by Claude Code publishes unchanged.
+
+### Stage 4: publish by asking
+
+- [ ] **T3.4 Founder onboarding (MCP-first)**
+  - Depends: T3.1. Steps: one pasted command installs the CLI and registers the SCAD MCP server with Claude Code (and Cursor) pointed at the public instance; `scad login` device approval works from a remote machine; every error `hint` is plain English and tells the agent the next action; MCP `publish` returns the link and `share` emails the friend; `docs/getting-started.md` assumes no terminal knowledge beyond pasting one command.
+  - Done when: on a second laptop, a person who has never seen SCAD goes from nothing to a shared https link by telling their agent "publish this and share it with <email>", following only the guide. Closes the M2 exit check.
+
+### Stage 5: private or public link
+
+- [ ] **T3.5 Public links (opt-in, private stays the default)**
+  - Depends: T1.2, T3.4. Human decision Nov 11: the founder chooses per site; the protected link is the default.
+  - Steps: `visibility` gains `public` (migration with down; default stays `allowlist`). `scad publish --public`, `scad visibility <app> public|private`, and a `visibility` field on the MCP `publish` tool whose description tells the agent to ask "private (only people you share with) or public (anyone with the link)?" and to use private when there is no clear answer. The gateway serves public sites without sign-in; identity headers and the JWT are injected only when the viewer has a session, and spoofed `X-SCAD-*` headers are always stripped (INV3). Public sites send `X-Robots-Tag: noindex` (anyone with the link, not search engines) and get a per-IP rate limit for anonymous requests. Visibility changes write an audit row; operator suspend still blocks within 5 s (INV9). The publish result says plainly which kind of link it is.
+  - Done when: a signed-out browser sees a public site and gets the sign-in page for a private one; switching public to private blocks a signed-out viewer within 5 s; spoofed identity headers never reach a public app; the MCP tool asks and defaults to private; adversarial suite green.
+
+### Stage 6: undo
+
+- [ ] **T3.6 Rollback.** `scad rollback` and an MCP `rollback` tool return to the previous release in one step ("that update broke it, go back"). Done when the founder publishes a broken change and undoes it.
+
+**M3 exit:** a non-technical person vibe codes a website of any kind on their own laptop, publishes the folder by asking their agent, and a friend on another network opens the https link and sees it (after signing in for a private link, directly for a public one).
+
+---
+
+## M4: Apps with a backend, and GitHub (after M3; ask the human before starting)
+
+- [ ] **T4.1 Backend dependencies.** Extend the T3.2 fetch step to backend apps: Node API servers, Python `pip download --only-binary=:all:` for a plain `requirements.txt`.
+- [ ] **T4.2 Backend framework auto-detect.** Express/Fastify, Flask/FastAPI/Django, PHP; examples `hello-express`, `hello-flask`, `hello-php`.
+- [ ] **T4.3 Volume snapshots** (nightly, 7-day retention, on the host's disk; one-command restore; note provider costs).
+- [ ] **T4.4 Generic OIDC providers** (Google first, then Workspace, Entra, Okta) as configuration.
+- [ ] **T4.5 Image scanning** as a publish-time warning; ownership transfer.
+- [ ] **T4.6 Fly driver.** Only when the free host is outgrown. `packages/runtime-fly` passes the same conformance suite; must verify four things first and report results: egress control, per-app private networking, volume semantics, scale-to-zero latency. Include a hard **spending cap and per-app budget alert** before first real deploy.
+- [ ] **T4.7 Publish from a GitHub repo URL**
+  - Depends: T0.5, T1.8. Steps: `scad publish https://github.com/{owner}/{repo}[/tree/{ref}]` and an optional `repo` field on the MCP `publish` tool. The CLI/MCP on the founder's machine downloads the repo archive with the founder's own git or `gh` credentials and uploads it through the normal publish path, so the control plane gains no GitHub access and private repos need no server secrets. Same 100 MB cap and manifest rules.
+  - Done when: a public repo and a private repo (with `gh` signed in) each publish to a link; a bad URL, a missing ref, and no access each return a clear `hint`.
 
 ## Appendix A: sample apps required in `examples/`
 

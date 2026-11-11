@@ -33,7 +33,7 @@ Analogy for the human reading along: an apartment building. Apps are apartments 
 
 ## 3. Non-goals (do not build)
 
-Autoscaling or multi-region; public/anonymous apps; custom domains; billing; marketplace or templates; forking UI; per-viewer delegated connectors (Jira, Slack, Drive); org-level environment customization; multi-instance apps; raw TCP; a web dashboard beyond the minimal operator page in M2.
+Autoscaling or multi-region; public apps as the default (public links are opt-in per app since Nov 11, T3.5); custom domains; billing; marketplace or templates; forking UI; per-viewer delegated connectors (Jira, Slack, Drive); org-level environment customization; multi-instance apps; raw TCP; a web dashboard beyond the minimal operator page in M2.
 
 ## 4. Architecture
 
@@ -125,7 +125,7 @@ docs/                  this brief, tasks, threat model, runbook
 users        id uuid pk, email text unique, display_name, github_id text null, handle text unique,
              role enum(operator|member), status enum(active|suspended), created_at
 apps         id uuid pk, slug text, owner_id fk, status enum(building|running|stopped|suspended|expired|deleted),
-             visibility enum(allowlist|instance), created_at, last_viewed_at, expires_at, pinned bool default false,
+             visibility enum(allowlist|instance|public) default allowlist, created_at, last_viewed_at, expires_at, pinned bool default false,
              unique(owner_id, slug)
 releases     id uuid pk, app_id fk, version int, image_ref, manifest jsonb, status enum(building|ready|failed),
              build_log_ref, error jsonb null, created_at, unique(app_id, version)

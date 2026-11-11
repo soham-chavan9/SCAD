@@ -530,6 +530,28 @@ started.
    private/reserved addresses stay refused (INV2). See `docs/egress.md`.
 2. **Merges.** Done on Nov 10: PR #35 landed the stack, so `dev` has all of T0.9–T2.5.
 
+## Resolved by human (Nov 11)
+
+1. **M3 scope.** SCAD shares a **hosted copy** of a website by link (not a
+   live tunnel). M3 covers every kind of website: plain pages, static builds from
+   any common framework or generator, and server-rendered JS sites (Next.js,
+   Nuxt, SvelteKit, Remix, Astro SSR). Backend apps move to M4. Code for all
+   M3 tasks is built overnight Nov 11; deploy and founder checks follow. Plan: `docs/m3-plan.md`; tasks:
+   TASKS.md M3 and M4.
+2. **Hosting (AGENTS §15).** $0 for the prototype: Oracle Cloud Always Free
+   VM, this Mac as fallback; DuckDNS subdomain first; Gmail SMTP for magic
+   links. The founder does the sign-ups and enters all credentials.
+3. **Dependency installs (Blocked #3).** Option (c), a trusted fetch step
+   with the build kept offline: build dependencies in T3.2, runtime
+   dependencies for server-rendered sites in T3.3, backend apps in M4 (T4.1).
+4. **GitHub.** All GitHub features move to M4. Publish from a repo URL,
+   downloaded on the founder's machine (T4.7); no auto-redeploy on push.
+5. **Who publishes.** Only the founder in M3; friends view and still sign in.
+   Public links: the agent asks the founder per site; a protected
+   (allowlist) link is the default, public (anyone with the link, no
+   sign-in) is opt-in (T3.5). AGENTS §3 and §7 updated.
+6. **Merges.** #39, #40, and #41 are merged into `dev`.
+
 ## Blocked: needs human
 
 1. **Merges.** Merge #39 (T2.7), then #40 (T2.8), then #41 (T2.9). All
