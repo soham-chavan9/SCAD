@@ -1,5 +1,3 @@
-import { lstat, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { ServerSite } from "./frameworks.js";
 
 /**
@@ -8,14 +6,13 @@ import type { ServerSite } from "./frameworks.js";
  * `node:22-alpine` as `node` with production `node_modules`, listening on
  * `PORT` under the same hardened profile and egress rules as every app.
  *
- * When a project lacks the Node adapter, SCAD adds it in the build context
- * (a temporary copy of the upload): the founder's files are never changed.
- * The adapter versions below are pinned and fetched from the npm registry by
- * the trusted fetch step like any other dependency.
+ * SvelteKit's default `adapter-auto` gets `adapter-node` (pinned below, fetched
+ * from the npm registry by the trusted fetch step); the founder's files are
+ * never changed. Other missing adapters get a hint that says what to change.
  */
 export const NODE_ADAPTERS = {
   sveltekit: { name: "@sveltejs/adapter-node", version: "6.0.2" },
-  astro: { name: "@astrojs/node", version: "11.1.12" },
+  astro: { name: "@astrojs/node" },
 } as const;
 
 export type ServerPlan = {
@@ -35,19 +32,6 @@ function deps(pkg: Pkg): Set<string> {
   return all;
 }
 
-async function isFile(path: string): Promise<boolean> {
-  try {
-    return (await lstat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function firstExisting(dir: string, names: string[]): Promise<string | undefined> {
-  for (const n of names) if (await isFile(join(dir, n))) return n;
-  return undefined;
-}
-
 export class ServerSiteError extends Error {
   constructor(
     message: string,
@@ -58,81 +42,43 @@ export class ServerSiteError extends Error {
   }
 }
 
-/**
- * Move the founder's config aside (in the build copy) and write one that
- * imports it and swaps in the Node adapter. ESM configs only; a CommonJS
- * config gets a hint instead.
- */
-async function wrapConfig(
-  dir: string,
-  candidates: string[],
-  build: (founderPath: string) => string,
-  what: string,
-): Promise<void> {
-  const name = await firstExisting(dir, candidates);
-  if (!name) {
-    const target = candidates[0]!;
-    await writeFile(join(dir, target), build(""));
-    return;
-  }
-  const text = await readFile(join(dir, name), "utf8");
-  if (/\bmodule\.exports\b|\brequire\s*\(/.test(text) && !/\bexport\s+default\b/.test(text)) {
-    throw new ServerSiteError(
-      `${name} is CommonJS, so SCAD cannot add the Node adapter for you`,
-      `Install ${what} and set it as the adapter in ${name}, then republish.`,
-    );
-  }
-  const ext = name.slice(name.lastIndexOf("."));
-  const founder = `${name.slice(0, name.lastIndexOf("."))}.founder${ext}`;
-  await rename(join(dir, name), join(dir, founder));
-  await writeFile(join(dir, name), build(`./${founder}`));
-}
+const OTHER_SVELTEKIT_ADAPTERS = ["@sveltejs/adapter-vercel", "@sveltejs/adapter-netlify", "@sveltejs/adapter-cloudflare", "@sveltejs/adapter-cloudflare-workers"];
 
 /**
- * Prepare the build copy for `site` and say which extra dependencies the
- * fetch step must add.
+ * Decide how `site` runs on Node, and which extra dependencies the fetch
+ * step must add. Never edits files: a SvelteKit `adapter-auto` is pointed at
+ * `adapter-node` inside the fetched node_modules during the build (that is
+ * what adapter-auto itself does on a supported host).
  */
-export async function prepareServerSite(dir: string, site: ServerSite, pkg: Pkg, configs: Record<string, string>): Promise<ServerPlan> {
+export function planServerSite(site: ServerSite, pkg: Pkg, configs: Record<string, string>): ServerPlan {
   const d = deps(pkg);
   if (site.id === "sveltekit" && !d.has(NODE_ADAPTERS.sveltekit.name)) {
     const { name, version } = NODE_ADAPTERS.sveltekit;
-    await wrapConfig(
-      dir,
-      ["svelte.config.js", "svelte.config.mjs"],
-      (founder) =>
-        [
-          "// Written by SCAD in the build copy: the founder's config with the Node adapter.",
-          `import adapter from "${name}";`,
-          founder ? `import founder from "${founder}";` : "const founder = {};",
-          "export default { ...founder, kit: { ...(founder.kit ?? {}), adapter: adapter() } };",
-          "",
-        ].join("\n"),
-      name,
-    );
-    return { extraDependencies: { [name]: version }, note: `SvelteKit: building with ${name}@${version} (added by SCAD; your files are unchanged)` };
-  }
-  if (site.id === "astro" && !d.has(NODE_ADAPTERS.astro.name)) {
-    const { name, version } = NODE_ADAPTERS.astro;
-    await wrapConfig(
-      dir,
-      ["astro.config.mjs", "astro.config.js", "astro.config.ts", "astro.config.mts"],
-      (founder) =>
-        [
-          "// Written by SCAD in the build copy: the founder's config with the Node adapter.",
-          `import node from "${name}";`,
-          founder ? `import founder from "${founder}";` : "const founder = {};",
-          'export default { ...founder, output: "server", adapter: node({ mode: "standalone" }) };',
-          "",
-        ].join("\n"),
-      name,
-    );
-    return { extraDependencies: { [name]: version }, note: `Astro: building with ${name}@${version} in standalone mode (added by SCAD; your files are unchanged)` };
-  }
-  if (site.id === "astro" && Object.values(configs).some((t) => /mode\s*:\s*["'`]middleware["'`]/.test(t))) {
+    if (d.has("@sveltejs/adapter-auto")) {
+      return {
+        extraDependencies: { [name]: version },
+        note: `SvelteKit: adapter-auto builds with ${name}@${version} on SCAD (added in the build; your files are unchanged)`,
+      };
+    }
+    const other = OTHER_SVELTEKIT_ADAPTERS.find((a) => d.has(a));
     throw new ServerSiteError(
-      "The Astro Node adapter is in middleware mode, which needs your own server",
-      'Set `adapter: node({ mode: "standalone" })` in astro.config, then republish.',
+      `This SvelteKit site uses ${other ?? "no adapter SCAD can run"}`,
+      `SCAD runs SvelteKit with ${name}. Install it (\`npm i -D ${name}\`), use it as the adapter instead of ${other ?? "the current one"}, then republish. (Or use @sveltejs/adapter-static for a site with no server code.)`,
     );
+  }
+  if (site.id === "astro") {
+    if (!d.has(NODE_ADAPTERS.astro.name)) {
+      throw new ServerSiteError(
+        "This Astro site renders on a server but does not use the Node adapter",
+        `Install @astrojs/node (\`npx astro add node\`), set \`adapter: node({ mode: "standalone" })\` in astro.config, then republish. Without server pages, remove \`output: "server"\` and the adapter to publish it as a static site.`,
+      );
+    }
+    if (Object.values(configs).some((t) => /mode\s*:\s*["'`]middleware["'`]/.test(t))) {
+      throw new ServerSiteError(
+        "The Astro Node adapter is in middleware mode, which needs your own server",
+        'Set `adapter: node({ mode: "standalone" })` in astro.config, then republish.',
+      );
+    }
   }
   return { extraDependencies: {} };
 }
@@ -154,7 +100,13 @@ const json = (argv: string[]) => JSON.stringify(argv);
  * Build-stage commands after the site's build, and the runtime stage. The
  * build stage is the shared `node:22-alpine` preamble (offline, as `node`).
  */
-export function serverStages(site: ServerSite, pkg: Pkg, configs: Record<string, string>, port: number, image: string): { afterBuild: string[]; runtime: string[] } {
+export function serverStages(
+  site: ServerSite,
+  pkg: Pkg,
+  configs: Record<string, string>,
+  port: number,
+  image: string,
+): { beforeBuild: string[]; afterBuild: string[]; runtime: string[] } {
   const scripts = (typeof pkg.scripts === "object" && pkg.scripts !== null ? pkg.scripts : {}) as Record<string, unknown>;
   const hasStart = typeof scripts["start"] === "string" && String(scripts["start"]).trim() !== "";
   const runtimeHead = [`FROM ${image}`, "WORKDIR /home/node/app"];
@@ -168,6 +120,7 @@ export function serverStages(site: ServerSite, pkg: Pkg, configs: Record<string,
       const standalone = Object.entries(configs).some(([n, t]) => n.startsWith("next.config") && /output\s*:\s*["'`]standalone["'`]/.test(t));
       if (standalone) {
         return {
+          beforeBuild: [],
           afterBuild: [
             "RUN cp -r .next/static .next/standalone/.next/static && if [ -d public ]; then cp -r public .next/standalone/public; fi",
           ],
@@ -182,12 +135,14 @@ export function serverStages(site: ServerSite, pkg: Pkg, configs: Record<string,
         };
       }
       return {
+        beforeBuild: [],
         afterBuild: [prune, "RUN rm -rf .next/cache && ln -s /tmp/next-cache .next/cache"],
         runtime: [...runtimeHead, copyApp, ...runtimeTail, `CMD ${json(["node_modules/.bin/next", "start"])}`],
       };
     }
     case "nuxt":
       return {
+        beforeBuild: [],
         afterBuild: [],
         // Nitro's node-server output is self-contained (its own node_modules).
         runtime: [
@@ -199,11 +154,15 @@ export function serverStages(site: ServerSite, pkg: Pkg, configs: Record<string,
       };
     case "sveltekit":
       return {
+        beforeBuild: deps(pkg).has(NODE_ADAPTERS.sveltekit.name)
+          ? []
+          : [`RUN printf '%s\\n' 'export { default } from "${NODE_ADAPTERS.sveltekit.name}";' > node_modules/@sveltejs/adapter-auto/index.js`],
         afterBuild: [prune],
         runtime: [...runtimeHead, copyApp, ...runtimeTail, `CMD ${json(["node", "build"])}`],
       };
     case "astro":
       return {
+        beforeBuild: [],
         afterBuild: [prune],
         runtime: [...runtimeHead, copyApp, ...runtimeTail, `CMD ${json(["node", "dist/server/entry.mjs"])}`],
       };
@@ -222,6 +181,7 @@ export function serverStages(site: ServerSite, pkg: Pkg, configs: Record<string,
         );
       }
       return {
+        beforeBuild: [],
         afterBuild: [prune],
         runtime: [...runtimeHead, copyApp, ...runtimeTail, `CMD ${json(start)}`],
       };

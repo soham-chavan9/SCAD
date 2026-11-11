@@ -256,6 +256,47 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     );
   }
 
+  // T3.3: server-rendered sites publish with no Dockerfile, render on the
+  // server, and come back from a stopped container within the 15 s wake budget.
+  for (const site of ["hello-next", "hello-nuxt", "hello-sveltekit", "hello-remix", "hello-astro-ssr"]) {
+    it(
+      `publishes examples/${site}, renders on the server, and wakes within 15 s (T3.3)`,
+      async () => {
+        const dir = join(process.cwd(), "examples", site);
+        const result = await publishDir({ dir, name: site, configPath, pollMs: 500 });
+        appIds.push(result.appId);
+        const [release] = await dbBundle.db.select().from(releases).where(eq(releases.id, result.releaseId)).limit(1);
+        expect(release?.status, JSON.stringify(release?.error)).toBe("ready");
+        const [machine] = await dbBundle.db.select().from(machines).where(eq(machines.appId, result.appId)).limit(1);
+        const ref = { appId: result.appId, providerId: machine!.providerId };
+        const get = async (path: string, waitSec = 0) => {
+          const { host, port } = await runtime.address(ref);
+          const url = `http://${host}:${port}${path}`;
+          const script = `end=$(( $(date +%s) + ${waitSec} )); until wget -q -O - "$0"; do [ "$(date +%s)" -ge "$end" ] && exit 1; usleep 100000; done`;
+          const { stdout } = await execFileAsync("docker", [
+            "run", "--rm", "--network", networkName(result.appId), "busybox:1.36", "sh", "-c", script, url,
+          ]);
+          return stdout;
+        };
+        // The HTML comes from the server (not a client-only shell).
+        expect(await get("/", 10)).toContain(`${site}: rendered on the server`);
+        expect(await get("/about", 10)).toContain(`${site}: about`);
+
+        await runtime.stop(ref);
+        expect(await runtime.status(ref)).toBe("stopped");
+        const t0 = Date.now();
+        await runtime.start(ref);
+        expect(await get("/", 15)).toContain("rendered on the server");
+        expect(Date.now() - t0).toBeLessThan(15_000);
+
+        const { apiUrl, pat } = (await loadConfig(configPath))!;
+        const del = await fetch(`${apiUrl}/v1/apps/${result.appId}`, { method: "DELETE", headers: { authorization: `Bearer ${pat}` } });
+        expect(del.ok).toBe(true);
+      },
+      600_000,
+    );
+  }
+
   it(
     "scad.json drives port, start command, env, and resources (T1.5)",
     async () => {

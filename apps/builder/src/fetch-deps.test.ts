@@ -7,7 +7,9 @@ import {
   FetchError,
   fetchNodeDependencies,
   fetchRunArgs,
+  FONT_FETCH_SCRIPT,
   NPM_FETCH_SCRIPT,
+  NPM_RELOCK_FETCH_SCRIPT,
   npmFetchEnv,
   nonRegistrySources,
   nonRegistrySpecs,
@@ -173,3 +175,39 @@ describe("install script report", () => {
     expect(await packagesWithInstallScripts(dir)).toEqual(["@scope/native", "esbuild", "inner"]);
   });
 });
+
+describe("SCAD-added dependencies and fonts (T3.3)", () => {
+  it("adds a pinned adapter to the build copy, re-resolves the lockfile, and passes fonts as argv (never shell text)", async () => {
+    const dir = await fixture({ "package.json": JSON.stringify({ name: "kit", devDependencies: { "@sveltejs/kit": "3.2.0" } }) });
+    const runs: string[][] = [];
+    const { exec } = fakeDocker(async (args) => {
+      runs.push(args);
+      const work = args[args.indexOf("-v") + 1]!.split(":/work")[0]!;
+      const fs = await import("node:fs/promises");
+      if (args.includes(NPM_RELOCK_FETCH_SCRIPT)) {
+        const pkg = JSON.parse(await fs.readFile(join(work, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+        expect(pkg.dependencies).toEqual({ "@sveltejs/adapter-node": "6.0.2" });
+        await fs.writeFile(join(work, "package-lock.json"), "{}");
+        await fs.mkdir(join(work, "node_modules"), { recursive: true });
+      }
+    });
+    await fetchNodeDependencies(dir, {
+      exec,
+      policyDir: await fixture({}),
+      extraDependencies: { "@sveltejs/adapter-node": "6.0.2" },
+      googleFonts: ["geist", "geist-mono", "bad;rm"],
+    });
+    expect(runs[0]).toContain(NPM_RELOCK_FETCH_SCRIPT);
+    const fontRun = runs.find((a) => a.includes(FONT_FETCH_SCRIPT))!;
+    expect(fontRun.slice(fontRun.indexOf(FONT_FETCH_SCRIPT) + 1)).toEqual(["scad-fonts", "geist", "geist-mono"]);
+    // The build copy (not the founder's folder) now lists the adapter.
+    expect(JSON.parse(await readFile(join(dir, "package.json"), "utf8")).dependencies).toEqual({ "@sveltejs/adapter-node": "6.0.2" });
+  });
+
+  it("refuses an extra dependency that is not a plain pinned registry package", async () => {
+    const dir = await fixture({ "package.json": "{}" });
+    await expect(fetchNodeDependencies(dir, { exec: fakeDocker().exec, extraDependencies: { "x; rm -rf /": "1.0.0" } })).rejects.toThrow(/invalid extra/);
+    await expect(fetchNodeDependencies(dir, { exec: fakeDocker().exec, extraDependencies: { x: "^1" } })).rejects.toThrow(/invalid extra/);
+  });
+});
+

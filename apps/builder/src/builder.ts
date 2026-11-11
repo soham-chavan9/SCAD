@@ -168,6 +168,7 @@ export class Builder {
             ...this.#fetchDeps,
             log: (l: string) => lines.push(l),
             ...(plan.extraDependencies ? { extraDependencies: plan.extraDependencies } : {}),
+            ...(plan.googleFonts ? { googleFonts: plan.googleFonts } : {}),
           };
           const fetched = plan.fetch === "npm" ? await fetchNodeDependencies(work, opts) : await fetchRubyGems(work, opts);
           skippedInstallScripts = fetched.skippedInstallScripts;

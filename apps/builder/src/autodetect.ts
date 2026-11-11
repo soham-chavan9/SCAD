@@ -3,7 +3,8 @@ import { join, normalize, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeError, type ErrorEnvelope } from "@scad/shared";
 import { CONFIG_FILES, detectFramework, scriptOf, type Configs, type ServerSite, type StaticSite } from "./frameworks.js";
-import { prepareServerSite, serverStages, ServerSiteError } from "./server-sites.js";
+import { planServerSite, serverStages, ServerSiteError } from "./server-sites.js";
+import { findGoogleFonts } from "./google-fonts.js";
 
 /**
  * T2.4 auto-detect: when an upload has no Dockerfile, SCAD writes one from a
@@ -29,6 +30,8 @@ export type BuildPlan = {
   extraDependencies?: Record<string, string>;
   /** What SCAD changed in the build copy, for the build log. */
   note?: string;
+  /** T3.3: Google fonts a Next.js site imports through next/font/google. */
+  googleFonts?: string[];
 };
 
 export type PrepareOptions = {
@@ -60,6 +63,7 @@ export const JEKYLL_BUILD_IMAGE = "ruby:3.3";
 /** SCAD's files in the build context (the CLI never uploads `.scad/`). */
 const SCAD_DIR = ".scad";
 const STATIC_SERVER_SOURCE = fileURLToPath(new URL("../assets/static-server.mjs", import.meta.url));
+const NEXT_FONT_MOCK_SOURCE = fileURLToPath(new URL("../assets/next-font-google-mock.cjs", import.meta.url));
 
 /** Build-time env: production mode, no telemetry or prompts, caches in /tmp. */
 const SITE_BUILD_ENV = [
@@ -112,7 +116,7 @@ async function nodeTemplate(dir: string, port: number): Promise<string> {
   if (hasDeps && (await kindOf(dir, "node_modules")) !== "dir") {
     throw new AutodetectError(
       "This looks like a backend app (a Node server with npm dependencies and no website framework); backend apps come in SCAD M4",
-      "SCAD M3 publishes websites: plain HTML, static builds (Vite, React, Astro, ...), and server-rendered sites (Next.js, Nuxt, SvelteKit, Remix, Astro). Publish the site part on its own, or bundle the server into one file with its dependencies (for example `esbuild server.js --bundle --platform=node --outfile=dist/server.js`) and publish that without the dependencies list. See docs/autodetect.md.",
+      "Backend apps come in SCAD M4. For now SCAD publishes websites: plain HTML, static builds (Vite, React, Astro, ...), and server-rendered sites (Next.js, Nuxt, SvelteKit, Remix, Astro). Publish the site part on its own, or bundle the server into one file with its dependencies (for example `esbuild server.js --bundle --platform=node --outfile=dist/server.js`) and publish that without the dependencies list. See docs/autodetect.md.",
       { dependencies: Object.keys(deps as object).slice(0, 20), backend: true },
     );
   }
@@ -257,10 +261,11 @@ function serverTemplate(site: ServerSite, pkg: Record<string, unknown>, configs:
   };
   const d = defaults[site.id];
   const build = hasBuild ? "RUN npm run build" : `RUN ${JSON.stringify([`node_modules/.bin/${d[0]}`, ...d.slice(1)])}`;
-  const { afterBuild, runtime } = serverStages(site, pkg, configs, port, SITE_IMAGE);
+  const { beforeBuild, afterBuild, runtime } = serverStages(site, pkg, configs, port, SITE_IMAGE);
   return [
     `# SCAD built-in template: ${site.label} server-rendered site (T3.3)`,
     ...BUILD_STAGE_PREAMBLE,
+    ...beforeBuild,
     build,
     ...afterBuild,
     "",
@@ -380,7 +385,7 @@ export async function prepareBuildContext(dir: string, port: number, opts: Prepa
       await prepareScadDir(dir);
       let server;
       try {
-        server = await prepareServerSite(dir, site, pkg, configs);
+        server = planServerSite(site, pkg, configs);
         dockerfile = serverTemplate(site, pkg, configs, port);
       } catch (err) {
         if (err instanceof ServerSiteError) throw new AutodetectError(err.message, err.hint, { framework: site.id });
@@ -406,6 +411,15 @@ export async function prepareBuildContext(dir: string, port: number, opts: Prepa
     dockerfile = staticTemplate(port);
   } else {
     throw new AutodetectError("No Dockerfile and no recognised app layout", SUPPORTED);
+  }
+  if (plan.framework === "next" || plan.framework === "next-export") {
+    const fonts = await findGoogleFonts(dir);
+    if (fonts.length > 0) {
+      await copyFile(NEXT_FONT_MOCK_SOURCE, join(dir, SCAD_DIR, "next-font-google-mock.cjs"));
+      const env = `ENV NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/home/node/app/${SCAD_DIR}/next-font-google-mock.cjs`;
+      dockerfile = dockerfile.replace(`ENV ${SITE_BUILD_ENV}\n`, `ENV ${SITE_BUILD_ENV}\n${env}\n`);
+      plan = { ...plan, googleFonts: fonts };
+    }
   }
   await writeFile(join(dir, "Dockerfile"), dockerfile, { flag: "wx" });
   return plan;

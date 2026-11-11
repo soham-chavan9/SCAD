@@ -83,6 +83,8 @@ export type FetchOptions = {
    * the upload; the lockfile is re-resolved (scripts still off) to include them.
    */
   extraDependencies?: Record<string, string>;
+  /** T3.3: Google font slugs a Next.js site imports; fetched as @fontsource packages from npm. */
+  googleFonts?: string[];
 };
 
 function policyDirOf(opts: FetchOptions): string {
@@ -176,6 +178,21 @@ export const NPM_RELOCK_FETCH_SCRIPT = [
   "npm install --package-lock-only --ignore-scripts",
   "npm ci --include=dev --include=optional --ignore-scripts",
 ].join("\n");
+
+/**
+ * Fixed script: install each font (positional args, validated slugs) from the
+ * npm registry into ./fonts, variable version first. A missing font is not
+ * fatal here; the build then fails with the Google Fonts hint.
+ */
+export const FONT_FETCH_SCRIPT = [
+  "set -e",
+  "mkdir -p fonts && cd fonts && printf '{\"private\":true}\\n' > package.json",
+  'for f in "$@"; do',
+  '  npm install --ignore-scripts --no-package-lock "@fontsource-variable/$f" || npm install --ignore-scripts --no-package-lock "@fontsource/$f" || echo "scad-fetch: no npm font package for $f"',
+  "done",
+].join("\n");
+
+const SAFE_FONT_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const SAFE_EXTRA_NAME = /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/;
 const SAFE_EXTRA_VERSION = /^\d+\.\d+\.\d+$/;
@@ -387,6 +404,26 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
         out.log,
       );
     }
+    const fonts = (opts.googleFonts ?? []).filter((f) => SAFE_FONT_SLUG.test(f) && f.length <= 60).slice(0, 10);
+    let fontLog = "";
+    if (fonts.length > 0) {
+      const fontRun = await runInFetchSandbox(
+        {
+          workDir: work,
+          image: FETCH_NODE_IMAGE,
+          allow: [NPM_REGISTRY_HOST],
+          env: npmFetchEnv(proxyUrl),
+          argv: ["sh", "-ec", FONT_FETCH_SCRIPT, "scad-fonts", ...fonts],
+        },
+        opts,
+      );
+      fontLog = fontRun.log;
+      if (fontRun.ok && (await isDir(join(work, "fonts", "node_modules")))) {
+        await mkdir(join(ctxDir, ".scad", "fonts"), { recursive: true });
+        await rename(join(work, "fonts", "node_modules"), join(ctxDir, ".scad", "fonts", "node_modules"));
+        log(`scad-fetch: Google fonts ${fonts.join(", ")} from npm (@fontsource) for next/font/google`);
+      }
+    }
     const skippedInstallScripts = await packagesWithInstallScripts(modules);
     await rm(join(ctxDir, "node_modules"), { recursive: true, force: true });
     await rename(modules, join(ctxDir, "node_modules"));
@@ -396,7 +433,7 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
       await copyFile(join(work, "package-lock.json"), join(ctxDir, "package-lock.json")).catch(() => {});
       if (extras.length > 0) await copyFile(join(work, "package.json"), join(ctxDir, "package.json"));
     }
-    return { log: out.log, skippedInstallScripts };
+    return { log: fontLog ? `${out.log}\n${fontLog}` : out.log, skippedInstallScripts };
   } finally {
     await rm(work, { recursive: true, force: true });
   }

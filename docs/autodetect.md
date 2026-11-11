@@ -1,4 +1,4 @@
-# Publishing without a Dockerfile (T2.4, T3.2)
+# Publishing without a Dockerfile (T2.4, T3.2, T3.3)
 
 If the upload has no `Dockerfile`, the builder writes one from a built-in
 template (`apps/builder/src/autodetect.ts`). Railpack, Nixpacks, and
@@ -16,6 +16,7 @@ The first match wins:
 | `hugo.toml` / `hugo.yaml` / `hugo.json` (or `config.toml` + `content/`, no package.json) | Hugo site (T3.2) | `node` | SCAD's static server |
 | `Gemfile` + `_config.yml` | Jekyll site (T3.2) | `node` | SCAD's static server |
 | `package.json` naming a site framework, or with a `build` script and no `start` | site build (T3.2, table below) | `node` | SCAD's static server |
+| `package.json` naming a server-rendered framework | server site (T3.3, below) | `node` | the framework's Node server |
 | `package.json` (anything else) | `node:22-alpine` | `node` | `npm start` if `scripts.start`, else `node <main>`, else `node server.js` / `node index.js` |
 | `requirements.txt` | `python:3.12-alpine` | `65534` (nobody) | `python app.py` (or `main.py`, `server.py`) |
 | `index.html` | `busybox:1.36` `httpd` | `65534` (nobody) | serves the folder (minus `scad.json`) |
@@ -58,10 +59,6 @@ to `/a/`). A miss serves the site's own `404.html` with 404 when it has one
 (multi-page sites like Docusaurus, Hugo, Astro); otherwise a page navigation
 gets `index.html` with 200, so client-side routes of single-page apps reload
 without a 404. Missing assets (`/x.js`) stay 404.
-
-Server-rendered sites (Next.js without `output: "export"`, Nuxt, SvelteKit
-with a node adapter, Remix / React Router, Astro with a server adapter) are
-T3.3; until then they get a hint naming the static option.
 
 ### The trusted fetch step
 
@@ -114,9 +111,46 @@ GitHub, checks its SHA-256 (`apps/builder/src/hugo.ts`), caches it under
 `$SCAD_DATA_DIR/cache`, and copies it into the build context. Hugo Modules
 (themes fetched with Go) cannot download; keep themes in `themes/`.
 
-Next.js `next/font/google` downloads fonts during `next build`, which has no
-network: the build fails with a hint to use `next/font/local` (or the `geist`
-package).
+Next.js `next/font/google`: see the server-rendered section below (it works
+for static exports too).
+
+## Server-rendered sites (T3.3)
+
+Next.js (without `output: "export"`), Nuxt, SvelteKit (without
+adapter-static), Remix / React Router (with SSR), and Astro with a server
+build the same way (trusted fetch, then an offline `npm run build`), then run
+on `node:22-alpine` as `node` with production `node_modules`
+(`npm prune --omit=dev`, offline), under the same hardened profile and egress
+rules as every app. Each gets `PORT` (the manifest port, default 8080),
+`HOST=0.0.0.0` / `HOSTNAME=0.0.0.0`, and `NODE_ENV=production`.
+
+| Framework | Runs | Notes |
+|---|---|---|
+| Next.js | `next start` | `output: "standalone"` in next.config: `node server.js` from `.next/standalone` (smaller image). `.next/cache` points at `/tmp` (read-only root). |
+| Nuxt | `node .output/server/index.mjs` | Nitro's output is self-contained; only `.output` is kept. |
+| SvelteKit | `node build` | needs `@sveltejs/adapter-node`. With the default `adapter-auto`, SCAD adds `adapter-node` (pinned `6.0.2`, fetched from npm) and points adapter-auto at it inside the build's `node_modules`; your files are unchanged. Other adapters (Vercel, Netlify, Cloudflare) get a hint to switch. |
+| Remix / React Router | `npm start` (`react-router-serve` / `remix-serve`) | without a start script, `react-router-serve build/server/index.js` |
+| Astro (`output: "server"` or a server adapter) | `node dist/server/entry.mjs` | needs `@astrojs/node` in standalone mode; otherwise a hint says what to change |
+
+Images are bigger than static ones (they keep `node_modules`): about 250 MB
+for Remix or SvelteKit, about 700 MB for Next.js with `next start`. A stopped
+site answers again in a few seconds (well inside the 15 s wake budget).
+
+**`next/font/google`** downloads fonts during `next build`, which has no
+network. SCAD reads the project's source as text for
+`import { ... } from "next/font/google"` (create-next-app's `Geist` and
+`Geist_Mono`, for example), and the trusted fetch step downloads the same
+fonts from the npm registry (`@fontsource-variable/<font>`, else
+`@fontsource/<font>`) into the build copy. The build sets Next's
+`NEXT_FONT_GOOGLE_MOCKED_RESPONSES` hook to
+`apps/builder/assets/next-font-google-mock.cjs`, which answers each Google
+Fonts CSS request from those files. Next then self-hosts them as usual. A font
+with no @fontsource package fails the build with a hint to use
+`next/font/local`.
+
+**Backend apps** (a package.json server with npm dependencies and no site
+framework, e.g. Express or Fastify; Python with packages from PyPI) are M4.
+They get `BUILD_FAILED` with a hint that says so and what works today.
 
 ## Dependencies for Node and Python apps (builds are offline)
 
@@ -155,7 +189,8 @@ file, or undeclared dependencies. Symlinked `Dockerfile` / `package.json` /
 - `apps/builder/src/fetch-deps.test.ts`: fetch argv/env (no secrets, hardened, registry only, cleanup), refusal of non-registry sources.
 - `apps/builder/src/fetch-deps.docker.test.ts` (real Docker + egress proxy + registry): `postinstall`/`install`/`preinstall`/`prepare` never run (with a scripts-on positive control); the fetch container reaches `registry.npmjs.org` through the proxy and nothing else (other hosts and metadata get 403, no direct route, no DNS).
 - `apps/builder/src/static-server.test.ts`: SPA fallback, `404.html`, traversal.
-- `apps/control-plane/src/publish.integration.test.ts`: every T3.2 example publishes with no Dockerfile or scad.json, and a client-side or nested route loads from inside the app network.
+- `apps/control-plane/src/publish.integration.test.ts`: every T3.2 example publishes with no Dockerfile or scad.json, and a client-side or nested route loads from inside the app network; every T3.3 example publishes, its HTML is rendered on the server, and a stopped site answers again within 15 s.
+- `apps/builder/src/server-sites.test.ts`, `google-fonts.test.ts`: server templates, adapter handling, M4 backend hint, font detection, and the font mock.
 - `apps/builder/src/autodetect.docker.test.ts`: a vendored wheel installs and
   imports with `--network=none` (skipped offline).
 - `apps/control-plane/src/publish.integration.test.ts`: a directory with only
