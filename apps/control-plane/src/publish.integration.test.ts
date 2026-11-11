@@ -289,9 +289,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
         expect(await get("/", 15)).toContain("rendered on the server");
         expect(Date.now() - t0).toBeLessThan(15_000);
 
-        const { apiUrl, pat } = (await loadConfig(configPath))!;
-        const del = await fetch(`${apiUrl}/v1/apps/${result.appId}`, { method: "DELETE", headers: { authorization: `Bearer ${pat}` } });
-        expect(del.ok).toBe(true);
+        await retire(result.appId);
       },
       600_000,
     );
