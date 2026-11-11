@@ -486,6 +486,69 @@ commits. No open PR has a base other than `dev`.
 - Still open from Day 4: the live-app cap counts the whole instance, not each
   owner.
 
+## M3 track B — 2026-11-11 (overnight, autonomous)
+
+Built in parallel with track A (hosting, gateway, CLI) on the same Docker and
+Postgres; tests ran under a shared lock against database `scad_track_b`.
+
+| Task | Status | Branch | PR | Not verified / notes |
+|---|---|---|---|---|
+| T3.2 Static site builds with a trusted dependency fetch | done | `task/t3-2-static-sites` | (stacked on `task/m3-plan`) | Checked on arm64 (this Mac) only; amd64 not run. pnpm/yarn/bun lockfiles are not honoured (npm resolves from package.json). |
+
+### What changed (T3.2)
+
+- **Trusted fetch step** (`apps/builder/src/fetch-deps.ts`, Blocked #3 option
+  c). Before the offline build, a container that sees only package.json and the
+  lockfile runs `npm ci --ignore-scripts`. Its only network is a private
+  `internal` Docker network whose one exit is the egress proxy, with a policy
+  that allows `registry.npmjs.org` (Jekyll: `rubygems.org`,
+  `index.rubygems.org`, `bundle cache --no-install`) and nothing else.
+  Non-root, read-only root, capabilities dropped, 2 GB / 512 pids, 5 min and
+  1.5 GB caps (`SCAD_FETCH_TIMEOUT_MS`, `SCAD_FETCH_MAX_MB`). No platform
+  secrets: the docker CLI gets the same filtered env as `docker build`.
+  Non-registry dependency specs and lockfile URLs are refused with a hint.
+- **The build is unchanged**: `--network=none`, same argv, INV8 tests
+  untouched and green.
+- **Site templates**: Vite (React, Vue, Svelte, Solid, Preact), Create React
+  App, Angular, Astro (static), Gatsby, Docusaurus, VitePress, Eleventy,
+  Next.js `output: "export"`, Nuxt generate, SvelteKit adapter-static, React
+  Router SPA, Hugo (pinned 0.169.0, SHA-256 checked, downloaded by the
+  builder), Jekyll, and a generic `npm run build` fallback (`dist`, `build`,
+  `out`, `public`, `_site`). Output is served by a dependency-free Node static
+  server (`apps/builder/assets/static-server.mjs`) with single-page-app
+  fallback to `index.html` and multi-page `404.html` support.
+- **Install scripts** never run. Packages that have one are logged, and a
+  failed build's hint names them.
+- **Smoke probe fix** (`packages/runtime-docker`): busybox `nc` hung up at
+  stdin EOF, so servers that answer asynchronously never got their reply out
+  and failed the smoke check. The probe now holds the request open for 1 s.
+- Examples (lockfiles committed): `hello-vite`, `hello-vue`, `hello-svelte`,
+  `hello-angular`, `hello-astro`, `hello-docusaurus`, `hello-next-export`,
+  `hello-gatsby`, `hello-hugo`, `hello-jekyll`.
+
+### Tests (T3.2)
+
+- `pnpm lint`, `pnpm typecheck` green. `pnpm test`: 88 of 91 files passed in a
+  full run; the three failures were my test cleanup (fixed in `e7debd1`) and
+  two load timeouts (`volume.test.ts` client timeout, `mcp-agent.test.ts` MCP
+  timeout) while three heavy builds ran. A rerun of those three files at
+  `e7debd1` passed 23/23.
+- Every example publishes through the real control plane and builder with no
+  Dockerfile and no scad.json, and a client-side or nested route loads from
+  inside the app network.
+- `fetch-deps.docker.test.ts`: `preinstall`/`install`/`postinstall`/`prepare`
+  never run (with a scripts-on positive control); the fetch container gets 200
+  from the registry through the proxy, 403 for other hosts, GitHub, and the
+  metadata address, no direct route, and no DNS.
+
+### Needs founder (T3.2)
+
+- **Jekyll Gemfile is Ruby.** Bundler evaluates the founder's `Gemfile` during
+  the fetch, so that code runs with rubygems-only egress and no secrets.
+  Accept, or drop Jekyll until a non-evaluating fetch exists.
+- **Image size.** Site images carry `node:22-alpine` (about 235 MB) for the
+  static server instead of busybox (about 4 MB), to get SPA fallback.
+
 ## M2 exit status
 
 M2 exit: *a friend publishes an app on their own, shares it, and the
