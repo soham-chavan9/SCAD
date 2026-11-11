@@ -129,4 +129,17 @@ describe("prepareBuildContext: server-rendered sites (T3.3)", () => {
     const err = (await prepareBuildContext(dir, 8080).catch((e: unknown) => e)) as AutodetectError;
     expect(err.envelope.hint).toMatch(/M4/);
   });
+
+  it("next/font/google: fonts come from the fetch step and a loopback-only font server during the build", async () => {
+    const dir = await fixture({
+      "package.json": pkg({ scripts: { build: "next build", start: "next start" }, dependencies: { next: "16.0.0" } }),
+      "app/layout.tsx": 'import { Geist, Geist_Mono } from "next/font/google";',
+    });
+    expect(await prepareBuildContext(dir, 8080)).toMatchObject({ framework: "next", googleFonts: ["geist", "geist-mono"] });
+    const df = await dockerfileOf(dir);
+    expect(df).toContain("ENV NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/home/node/app/.scad/next-font-google-mock.cjs");
+    expect(df).toContain("RUN node .scad/next-font-server.cjs & p=$!; npm run build; s=$?; kill $p; exit $s");
+    expect(await readFile(join(dir, ".scad", "next-font-server.cjs"), "utf8")).toContain('listen(PORT, "127.0.0.1")');
+  });
 });
+

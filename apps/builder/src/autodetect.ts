@@ -64,6 +64,7 @@ export const JEKYLL_BUILD_IMAGE = "ruby:3.3";
 const SCAD_DIR = ".scad";
 const STATIC_SERVER_SOURCE = fileURLToPath(new URL("../assets/static-server.mjs", import.meta.url));
 const NEXT_FONT_MOCK_SOURCE = fileURLToPath(new URL("../assets/next-font-google-mock.cjs", import.meta.url));
+const NEXT_FONT_SERVER_SOURCE = fileURLToPath(new URL("../assets/next-font-server.cjs", import.meta.url));
 
 /** Build-time env: production mode, no telemetry or prompts, caches in /tmp. */
 const SITE_BUILD_ENV = [
@@ -416,8 +417,15 @@ export async function prepareBuildContext(dir: string, port: number, opts: Prepa
     const fonts = await findGoogleFonts(dir);
     if (fonts.length > 0) {
       await copyFile(NEXT_FONT_MOCK_SOURCE, join(dir, SCAD_DIR, "next-font-google-mock.cjs"));
+      await copyFile(NEXT_FONT_SERVER_SOURCE, join(dir, SCAD_DIR, "next-font-server.cjs"));
       const env = `ENV NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/home/node/app/${SCAD_DIR}/next-font-google-mock.cjs`;
       dockerfile = dockerfile.replace(`ENV ${SITE_BUILD_ENV}\n`, `ENV ${SITE_BUILD_ENV}\n${env}\n`);
+      // Loopback-only font server for the build step (Turbopack downloads font files itself).
+      dockerfile = dockerfile.replace(
+        /^RUN (npm run build|\[.*\])$/m,
+        (_m, build: string) =>
+          `RUN node ${SCAD_DIR}/next-font-server.cjs & p=$!; ${build.startsWith("[") ? (JSON.parse(build) as string[]).join(" ") : build}; s=$?; kill $p; exit $s`,
+      );
       plan = { ...plan, googleFonts: fonts };
     }
   }

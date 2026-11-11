@@ -144,9 +144,14 @@ fonts from the npm registry (`@fontsource-variable/<font>`, else
 `@fontsource/<font>`) into the build copy. The build sets Next's
 `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` hook to
 `apps/builder/assets/next-font-google-mock.cjs`, which answers each Google
-Fonts CSS request from those files. Next then self-hosts them as usual. A font
-with no @fontsource package fails the build with a hint to use
-`next/font/local`.
+Fonts CSS request from those files. Webpack reads the font files from disk;
+Turbopack (Next 16's default) always downloads font files itself, so during
+`next build` SCAD runs `assets/next-font-server.cjs` on `127.0.0.1` only (the
+build still has no network; loopback works) and the CSS points there. Next
+then self-hosts the fonts as usual. A font with no @fontsource package fails
+the build with a plain-English hint: switch it to `next/font/local` or a
+`<link>` tag. Checked with an unmodified create-next-app (TypeScript,
+Tailwind, Geist) on Next 16.4.6.
 
 **Backend apps** (a package.json server with npm dependencies and no site
 framework, e.g. Express or Fastify; Python with packages from PyPI) are M4.
