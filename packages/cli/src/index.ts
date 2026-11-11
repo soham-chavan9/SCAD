@@ -20,3 +20,5 @@ export {
   adminUsers,
   formatUsage,
 } from "./admin.js";
+
+export { defaultRunner, setup, type Runner, type SetupOptions, type SetupReport } from "./setup.js";

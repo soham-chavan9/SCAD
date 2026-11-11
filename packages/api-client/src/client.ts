@@ -11,6 +11,9 @@ export type DeviceCodeResponse = {
   user_code: string;
   verification_uri: string;
   interval: number;
+  /** Present when an approval link was requested by email (T3.4). */
+  approval?: "email";
+  message?: string;
 };
 
 /** Who may open an app: allowlist (private, the default), instance, or public (T3.5). */
@@ -131,8 +134,12 @@ export class ScadClient {
     this.#fetch = opts.fetchImpl ?? fetch;
   }
 
-  async startDeviceAuth(): Promise<DeviceCodeResponse> {
-    return this.#json("/v1/auth/device", { method: "POST" });
+  /** Start `scad login`. With `email`, an operator gets an approval link by email (T3.4). */
+  async startDeviceAuth(email?: string): Promise<DeviceCodeResponse> {
+    return this.#json("/v1/auth/device", {
+      method: "POST",
+      ...(email ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) } : {}),
+    });
   }
 
   async pollDeviceToken(
@@ -206,7 +213,7 @@ export class ScadClient {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/rollback`, { method: "POST", auth: true });
   }
 
-  async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string }> {
+  async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string; emailed?: boolean }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/share`, {
       method: "POST",
       headers: { "content-type": "application/json" },

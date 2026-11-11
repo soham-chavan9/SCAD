@@ -34,7 +34,7 @@ export type ScadMcpDeps = {
 };
 
 const ERRORS_COMMON =
-  "UNAUTHENTICATED (run `scad login`), NOT_FOUND (no such app among yours: check list_apps), " +
+  "UNAUTHENTICATED (not logged in: the person runs `~/.scad/bin/scad login --email <their email>` once), NOT_FOUND (no such app among yours: check list_apps), " +
   "VALIDATION_FAILED (bad input: see hint), RATE_LIMITED, INTERNAL. Every error is the SCAD envelope " +
   "{code, message, hint, details} as JSON; follow `hint`.";
 
@@ -67,7 +67,7 @@ function fail(err: unknown): CallToolResult {
       code: "INTERNAL",
       message,
       hint: /log ?in/i.test(message)
-        ? "Run `scad login` in a terminal, then retry."
+        ? "Ask the person to run `~/.scad/bin/scad login --email <their email>` in a terminal and press Approve in the email, then retry."
         : "Retry; if it persists, check that the SCAD control plane is reachable.",
       details: {},
     };
@@ -171,8 +171,10 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
     "share",
     {
       description:
-        "Let someone open one of your apps by adding their email to its allowlist. They sign in with GitHub or " +
-        "an email link using that address; they don't need an account yet. Takes effect within 5 seconds. " +
+        "Let someone open one of your sites by adding their email to its allowlist, and email them the link " +
+        "(emailed: true in the result; if false, give them the url yourself). They sign in with an emailed link " +
+        "using that address; they don't need an account yet. Takes effect within 5 seconds. A public site needs " +
+        "no sharing, but sharing still sends the link. " +
         `Inputs: app (slug or id), email. Errors: ${ERRORS_COMMON}`,
       inputSchema: { app: appRef, email: z.email().describe("Email address of the person to share with.") },
     },

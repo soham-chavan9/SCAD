@@ -559,6 +559,7 @@ started.
 | T3.1 Public hosting at $0 | code done, live checks need founder | `task/t3-1-hosting` | see PR list | Checkbox left unticked: the live acceptance needs the founder's accounts |
 | T3.6 Rollback | code done, founder check pending | `task/t3-6-rollback` | see PR list | Automated equivalent of the founder check passes on real Docker |
 | T3.5 Public links | done | `task/t3-5-public-links` | see PR list | Private stays the default; adversarial suite has a public-links file |
+| T3.4 Founder onboarding | code done, second-laptop check needs founder | `task/t3-4-onboarding` | see PR list | Fresh-laptop install simulated end to end in `tests/e2e/src/install.test.ts` |
 
 **T3.1 notes.** Built host-agnostic and proved locally:
 
@@ -625,6 +626,29 @@ Visibility and suspension are read fresh per request (INV9). Anonymous
 WebSocket upgrades are not rate-limited (the WS path has no trusted client IP
 behind Caddy); noted for later. Founder check (stage 5, a phone that isn't
 signed in opens one site of each kind) needs the live server.
+
+**T3.4 notes.** One pasted command:
+`curl -fsSL https://api.<instance>/install.sh | sh -s -- --email you@example.com`.
+The control plane serves `install.sh` (checks Node 22, plain-English messages)
+and a one-file client (`pnpm build:install`: esbuild bundles the CLI and MCP
+server; `scad.mjs mcp` runs the MCP server). `scad setup` logs in and
+registers SCAD with Claude Code (`claude mcp add --scope user`) and Cursor
+(merges `~/.cursor/mcp.json`). Remote `scad login`: the auth host has no
+session of its own, so approval is by email from the control plane: an
+operator gets a one-time link (hashed, single use, 10 minutes, GET only shows
+a confirm page so mail scanners cannot approve; 5 emails per address per
+15 minutes, 50 per hour per instance; same answer for non-operators). Loopback
+approval still refuses anything that came through Caddy. `share` now emails
+the friend the link (`emailed` in the result; best effort). Hints reworded
+for not logged in, unknown site, build failed. New dev dependency: `esbuild`
+0.25.12 (already in the lockfile via tsx) to build the one-file client.
+`tests/e2e/src/install.test.ts` runs the real `install.sh` against a real
+control plane with a fresh `HOME`, a fake `claude` on `PATH`, and a
+`~/.cursor` folder, approves through the emailed link, and checks login,
+both registrations, a second run, and the no-Node message. **Needs founder:**
+the second-laptop check (a person who has never seen SCAD follows only
+`docs/getting-started.md`), which also closes the M2 exit check; checkbox
+unticked until then.
 
 ## Blocked: needs human
 

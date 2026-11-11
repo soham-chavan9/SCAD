@@ -1,4 +1,7 @@
 #!/usr/bin/env node --experimental-strip-types
+import { createReadStream } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { describeLink, visibilityFor } from "@scad/shared";
 import {
@@ -17,6 +20,7 @@ import { defaultConfigPath, loadConfig } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
+import { setup } from "./setup.js";
 import { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
 import { streamLogs } from "./logs.js";
 import { listApps, listShares, rollbackApp, setVisibility, shareApp, unshareApp } from "./share.js";
@@ -34,25 +38,53 @@ async function main(): Promise<void> {
       "Auto-approve device code (local/dev)",
       process.env["SCAD_APPROVE_EMAIL"],
     )
+    .option("--email <email>", "Email me an approval link (works from any machine; operators only)")
     .option("--config <path>", "Config path", defaultConfigPath())
-    .action(async (opts: { apiUrl: string; approveEmail?: string; config: string }) => {
+    .action(async (opts: { apiUrl: string; approveEmail?: string; email?: string; config: string }) => {
       const config = await loginWithDeviceCode({
         apiUrl: opts.apiUrl,
         ...(opts.approveEmail ? { approveEmail: opts.approveEmail } : {}),
+        ...(opts.email ? { email: opts.email } : {}),
         configPath: opts.config,
-        onUserCode: ({ userCode, verificationUri }) => {
-          console.log(`User code: ${userCode}`);
-          console.log(`Approve at: ${verificationUri}`);
-          if (!opts.approveEmail) {
+        onUserCode: ({ userCode, verificationUri, message }) => {
+          console.log(`Code: ${userCode}`);
+          if (message) {
+            console.log(message);
+            console.log("Waiting for you to press Approve…");
+          } else if (!opts.approveEmail) {
+            console.log(`Approve at: ${verificationUri}`);
             console.log(
-              `POST ${verificationUri} with JSON {"user_code":"${userCode}","email":"you@example.com"}`,
+              `On the server: POST ${verificationUri} with JSON {"user_code":"${userCode}","email":"you@example.com"}`,
             );
+            console.log("Or from any machine: scad login --email you@example.com");
           }
         },
       });
       console.log(`Logged in. Config written to ${opts.config}`);
       console.log(`API: ${config.apiUrl}`);
     });
+
+  program
+    .command("setup")
+    .description("First-time setup (run by the install command): log in and add SCAD to Claude Code and Cursor")
+    .requiredOption("--api-url <url>", "This SCAD instance's API, e.g. https://api.myscad.duckdns.org")
+    .option("--email <email>", "Your email (where the approval link goes)")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (opts: { apiUrl: string; email?: string; config: string }) => {
+        const bundle = process.argv[1] ? resolvePath(process.argv[1]) : "";
+        if (!bundle.endsWith(".mjs")) {
+          throw new Error("Run setup from the installed SCAD (the install command from docs/getting-started.md).");
+        }
+        await setup({
+          apiUrl: opts.apiUrl,
+          ...(opts.email ? { email: opts.email } : {}),
+          askEmail: askOnTerminal("Your email address (the one SCAD knows you by): "),
+          mcpCommand: { command: process.execPath, args: [bundle, "mcp"] },
+          configPath: opts.config,
+        });
+      }),
+    );
 
   program
     .command("publish")
@@ -360,6 +392,20 @@ async function main(): Promise<void> {
 }
 
 /** Print §8 error envelopes as JSON and exit 1, rethrow anything else. */
+/** Ask one question on the terminal, even when stdin is the piped install script. */
+function askOnTerminal(question: string): () => Promise<string> {
+  return async () => {
+    const input = process.stdin.isTTY ? process.stdin : createReadStream("/dev/tty");
+    const rl = createInterface({ input, output: process.stdout });
+    try {
+      return await rl.question(question);
+    } finally {
+      rl.close();
+      if (input !== process.stdin) input.destroy();
+    }
+  };
+}
+
 function handleErrors<A extends unknown[]>(fn: (...args: A) => Promise<void>) {
   return async (...args: A): Promise<void> => {
     try {

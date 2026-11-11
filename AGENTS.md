@@ -150,15 +150,16 @@ All secrets, tokens, and codes are stored **hashed or encrypted**, never plainte
 Auth: `Authorization: Bearer <PAT>`. Operator routes require `role=operator` or an email in `OPERATOR_EMAILS`.
 
 ```
-POST   /auth/device                 -> {device_code, user_code, verification_uri, interval}
+POST   /auth/device                 {email?} -> {device_code, user_code, verification_uri, interval}; with email (T3.4) an operator gets a one-time approval link
 POST   /auth/device/token           {device_code} -> {pat} | {error: "authorization_pending"}
+GET    /auth/device/email?token=    (T3.4) confirm page; POST /auth/device/email {token} approves (single use)
 POST   /apps/publish                multipart: tarball, manifest? , name? -> 202 {app, release, url}
 GET    /releases/:id                -> {status, error?, log_tail}
 GET    /releases/:id/logs           SSE build log
 GET    /apps                        list mine
 GET    /apps/:id                    detail (url, status, expires_at, viewers_30d)
 PATCH  /apps/:id                    {visibility}
-POST   /apps/:id/share              {email}
+POST   /apps/:id/share              {email} -> {app_id, email, emailed} (T3.4: emails the friend the link)
 GET    /apps/:id/share              -> allowlist (emails) + visibility
 DELETE /apps/:id/share/:email
 PUT    /apps/:id/env                {KEY: value} + {secret?: string[]}
@@ -179,6 +180,8 @@ DELETE /admin/invites/:email        (T2.6)
 GET    /admin/audit                 (T2.6) ?limit=&app= recent audit_events
 GET    /admin/usage                 (T2.7) ?days= per-app requests, viewers, last viewed, running hours, volume
 ```
+
+Unversioned (T3.4, public): `GET /install.sh` (the one pasted install command) and `GET /install/scad.mjs` (the one-file CLI + MCP client).
 
 Internal (gateway to control plane, shared secret + network-restricted): `POST /internal/resolve {host}`, `POST /internal/wake {appId}`, `POST /internal/touch {appId, userId}`.
 

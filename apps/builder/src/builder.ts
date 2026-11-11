@@ -31,7 +31,7 @@ export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> 
   return makeError(
     "BUILD_FAILED",
     err instanceof Error ? err.message : "Builder failed",
-    "Inspect the build log, fix the app, and republish.",
+    "Read details.log_tail to see what went wrong, fix the files, and publish again.",
     {},
   );
 }

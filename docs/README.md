@@ -21,5 +21,6 @@ Canonical agent brief and build plan live at the repo root:
 
 - [`runbook.md`](runbook.md) — back up, restore, rotate keys, suspend and delete user data, disaster reset
 - [`rollback.md`](rollback.md) — `scad rollback` / MCP `rollback`: back to the previous working version, `/data` kept
+- [`getting-started.md`](getting-started.md) — for founders: one pasted command, then publish and share by asking your AI
 - [`deploy.md`](deploy.md) — production on one free VM: Caddy on-demand TLS, `deploy/compose.yml`, firewall, backups
 - [`m3-plan.md`](m3-plan.md) — M3 founder plan: share a website by link; stages, CTO decisions, risks

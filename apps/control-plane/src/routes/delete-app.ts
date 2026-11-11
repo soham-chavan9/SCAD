@@ -21,7 +21,7 @@ export const deleteAppRoutes: FastifyPluginAsync<DeleteAppRoutesOpts> = async (a
   app.delete<{ Params: { idOrSlug: string } }>("/v1/apps/:idOrSlug", async (request) => {
     const owned = await findOwnedApp(opts.db, request.user.id, request.params.idOrSlug);
     if (!opts.machines) {
-      throw new ApiError(503, "INTERNAL", "Deleting apps is not available on this instance", "Start the control plane with a runtime.");
+      throw new ApiError(503, "INTERNAL", "Deleting apps is not available on this instance", "Ask the SCAD operator to start the control plane with a runtime.");
     }
     await deleteApp(opts.db, opts.machines, owned.id, { actorId: request.user.id, reason: "owner" });
     return { app_id: owned.id, slug: owned.slug, status: "deleted" as const };

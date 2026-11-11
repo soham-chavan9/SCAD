@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 import { apiBaseUrlFor, isLocalBaseDomain } from "@scad/shared";
@@ -25,7 +26,9 @@ import { releasesRoutes } from "./routes/releases.js";
 import { rollbackRoutes } from "./routes/rollback.js";
 import { shareRoutes } from "./routes/share.js";
 import { tlsAskRoutes } from "./routes/tls-ask.js";
+import { installRoutes } from "./routes/install.js";
 import type { MasterKeyRing } from "./secrets/crypto.js";
+import type { Mailer } from "./lifecycle/jobs.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
 export type BuildAppOptions = {
@@ -51,7 +54,13 @@ export type BuildAppOptions = {
   maxLiveApps?: number;
   /** MASTER_KEY (+ previous keys during rotation) for env var encryption (T1.6). */
   masterKeys?: MasterKeyRing;
+  /** Email for `scad login` approval links and share notices (T3.4). */
+  mailer?: Mailer;
+  /** The one-file client served at /install/scad.mjs (T3.4); defaults to `dist/install/scad.mjs` in the repo. */
+  installBundlePath?: string;
 };
+
+const DEFAULT_INSTALL_BUNDLE = join(dirname(fileURLToPath(import.meta.url)), "../../../dist/install/scad.mjs");
 
 /**
  * Where the CLI and MCP server reach this control plane (T3.1). On a real
@@ -105,9 +114,14 @@ export async function buildApp(opts: BuildAppOptions) {
     devices,
     operatorEmails,
     publicBaseUrl,
+    ...(opts.mailer ? { mailer: opts.mailer } : {}),
   });
   await app.register(appsRoutes, { db: opts.db, baseDomain });
   await app.register(tlsAskRoutes, { db: opts.db, baseDomain });
+  await app.register(installRoutes, {
+    publicBaseUrl,
+    bundlePath: opts.installBundlePath ?? process.env["SCAD_INSTALL_BUNDLE"] ?? DEFAULT_INSTALL_BUNDLE,
+  });
   const machines =
     opts.machines ??
     (opts.runtime
@@ -118,7 +132,7 @@ export async function buildApp(opts: BuildAppOptions) {
         })
       : undefined);
 
-  await app.register(shareRoutes, { db: opts.db });
+  await app.register(shareRoutes, { db: opts.db, baseDomain, ...(opts.mailer ? { mailer: opts.mailer } : {}) });
   await app.register(adminRoutes, { db: opts.db, operatorEmails, ...(machines ? { machines } : {}) });
   await app.register(adminUsageRoutes, { db: opts.db, operatorEmails, ...(opts.now ? { now: opts.now } : {}) });
   await app.register(envRoutes, {
