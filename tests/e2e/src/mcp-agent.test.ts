@@ -106,8 +106,15 @@ describe.runIf(Boolean(databaseUrl))("MCP agent session (T1.8, real Docker)", ()
 
     const server = createScadMcpServer({
       client: new ScadClient({ baseUrl: config.apiUrl, pat: config.pat }),
-      publish: (dir, name) =>
-        publishDir({ dir, ...(name ? { name } : {}), apiUrl: config.apiUrl, pat: config.pat, pollMs: 300 }),
+      publish: (dir, name, visibility) =>
+        publishDir({
+          dir,
+          ...(name ? { name } : {}),
+          ...(visibility ? { visibility } : {}),
+          apiUrl: config.apiUrl,
+          pat: config.pat,
+          pollMs: 300,
+        }),
     });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await server.connect(serverT);
@@ -130,6 +137,8 @@ describe.runIf(Boolean(databaseUrl))("MCP agent session (T1.8, real Docker)", ()
       const published = await call("publish", { dir: join(REPO_ROOT, "examples/hello-node"), name: "hello-node" });
       expect(published.isError).toBe(false);
       expect(published.body).toMatchObject({ url: "http://hello-node.agent.localhost:8080" });
+      // T3.5: nobody said public, so the link is private, and the result says so.
+      expect(published.body).toMatchObject({ visibility: "private", link: expect.stringMatching(/^Private link/) });
       appIds.push(String(published.body["app_id"]));
 
       const shared = await call("share", { app: "hello-node", email: "friend@example.com" });

@@ -13,8 +13,11 @@ export type DeviceCodeResponse = {
   interval: number;
 };
 
+/** Who may open an app: allowlist (private, the default), instance, or public (T3.5). */
+export type Visibility = "allowlist" | "instance" | "public";
+
 export type PublishResponse = {
-  app: { id: string; slug: string; ownerId: string; status: string };
+  app: { id: string; slug: string; ownerId: string; status: string; visibility?: Visibility };
   release: { id: string; version: number; status: string };
   url: string;
 };
@@ -47,7 +50,7 @@ export type EnvUpdate = { env: EnvEntry[]; applied: "redeployed" | "next_publish
 
 export type AppShares = {
   app_id: string;
-  visibility: "allowlist" | "instance";
+  visibility: Visibility;
   viewers: { email: string; granted_at: string }[];
 };
 
@@ -249,8 +252,8 @@ export class ScadClient {
 
   async setVisibility(
     idOrSlug: string,
-    visibility: "allowlist" | "instance",
-  ): Promise<{ app: { id: string; slug: string; visibility: "allowlist" | "instance" } }> {
+    visibility: Visibility,
+  ): Promise<{ app: { id: string; slug: string; visibility: Visibility } }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },

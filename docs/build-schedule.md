@@ -558,6 +558,7 @@ started.
 |---|---|---|---|---|
 | T3.1 Public hosting at $0 | code done, live checks need founder | `task/t3-1-hosting` | see PR list | Checkbox left unticked: the live acceptance needs the founder's accounts |
 | T3.6 Rollback | code done, founder check pending | `task/t3-6-rollback` | see PR list | Automated equivalent of the founder check passes on real Docker |
+| T3.5 Public links | done | `task/t3-5-public-links` | see PR list | Private stays the default; adversarial suite has a public-links file |
 
 **T3.1 notes.** Built host-agnostic and proved locally:
 
@@ -611,6 +612,19 @@ code answers and the counter kept counting. **Needs founder:** the stage 6
 check itself (publish a broken change and undo it by asking the agent); the
 checkbox stays unticked until then. Merge note: track B may also add a
 migration numbered 0009; renumber whichever lands second.
+
+**T3.5 notes.** `visibility` gains `public` (migration 0010; the down script
+rebuilds the enum, so the down test now also accepts `DROP TYPE`). `scad
+publish --public/--private`, `scad visibility <app> private|public`, MCP
+`publish` `visibility` (asks first, private when unsure, omitted on republish
+keeps the setting), and every publish result carries a plain `link` sentence.
+Gateway: one `decideAccess` for HTTP and WebSocket; anonymous visitors of a
+public site get no identity headers (INV3), `X-Robots-Tag: noindex, nofollow`
+on every public response, 300 anonymous requests/min per IP per site.
+Visibility and suspension are read fresh per request (INV9). Anonymous
+WebSocket upgrades are not rate-limited (the WS path has no trusted client IP
+behind Caddy); noted for later. Founder check (stage 5, a phone that isn't
+signed in opens one site of each kind) needs the live server.
 
 ## Blocked: needs human
 

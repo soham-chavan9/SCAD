@@ -33,6 +33,8 @@ export type BuildGatewayOptions = {
   htmlHoldMs?: number;
   /** OPERATOR_EMAILS: may always create an account; everyone else needs an invite or a share (T2.6). */
   operatorEmails?: Iterable<string>;
+  /** Anonymous requests per IP per minute to public sites (T3.5; default 300). */
+  publicPerIpPerMinute?: number;
   /**
    * Reverse proxies in front of the gateway whose X-Forwarded-For to trust
    * (T3.1: Caddy). A comma list of IPs/CIDRs. Without it, every viewer
@@ -111,6 +113,7 @@ export async function buildGateway(opts: BuildGatewayOptions) {
       resolver: opts.resolver,
       keys: opts.keys,
       ...wakeOpts,
+      ...(opts.publicPerIpPerMinute !== undefined ? { publicPerIpPerMinute: opts.publicPerIpPerMinute } : {}),
     });
   });
 

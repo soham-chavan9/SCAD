@@ -17,5 +17,6 @@ export {
   type PublishResponse,
   type ReleaseStatus,
   type RollbackResult,
+  type Visibility,
   type ScadClientOptions,
 } from "./client.js";

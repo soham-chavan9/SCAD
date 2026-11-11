@@ -29,7 +29,7 @@ export const appStatusEnum = pgEnum("app_status", [
   "expired",
   "deleted",
 ]);
-export const appVisibilityEnum = pgEnum("app_visibility", ["allowlist", "instance"]);
+export const appVisibilityEnum = pgEnum("app_visibility", ["allowlist", "instance", "public"]);
 
 export const releaseStatusEnum = pgEnum("release_status", ["building", "ready", "failed"]);
 

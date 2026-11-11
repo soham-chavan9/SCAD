@@ -102,6 +102,49 @@ describe("@scad/cli", () => {
     expect(releaseCalls).toBeGreaterThan(0);
   });
 
+  it("publishDir --public sets the link public and says so; a new app is private otherwise (T3.5)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scad-pub-vis-"));
+    await writeFile(join(dir, "Dockerfile"), "FROM scratch\n");
+    const configPath = join(dir, "config.json");
+    await saveConfig({ apiUrl: "http://cp.test", pat: "pat-test" }, configPath);
+    const patches: unknown[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith("/v1/apps/publish")) {
+        return json(
+          {
+            app: { id: "app-1", slug: "site", ownerId: "u1", status: "building", visibility: "allowlist" },
+            release: { id: "rel-1", version: 1, status: "building" },
+            url: "http://site.alice.localhost:8080",
+          },
+          202,
+        );
+      }
+      if (url.endsWith("/v1/apps/app-1") && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { visibility: string };
+        patches.push(body);
+        return json({ app: { id: "app-1", slug: "site", visibility: body.visibility } });
+      }
+      if (url.includes("/v1/releases/rel-1")) {
+        return json({ id: "rel-1", appId: "app-1", version: 1, status: "ready", imageRef: "i", error: null, log_tail: [] });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const pub = await publishDir({ dir, name: "site", configPath, pollMs: 1, visibility: "public", fetchImpl });
+    expect(patches).toEqual([{ visibility: "public" }]);
+    expect(pub.visibility).toBe("public");
+    expect(pub.link).toMatch(/^Public link: anyone with the link/);
+
+    patches.length = 0;
+    const priv = await publishDir({ dir, name: "site", configPath, pollMs: 1, fetchImpl });
+    expect(patches).toEqual([]);
+    expect(priv.visibility).toBe("allowlist");
+    expect(priv.link).toMatch(/^Private link/);
+  });
+
   it("publishDir fails with structured error when URL is a template", async () => {
     const dir = await mkdtemp(join(tmpdir(), "scad-pub-bad-"));
     await writeFile(join(dir, "Dockerfile"), "FROM scratch\n");

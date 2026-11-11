@@ -25,7 +25,7 @@ stdout carries only the MCP protocol.
 
 | Tool | Inputs | Does |
 |---|---|---|
-| `publish` | `dir` (absolute path), `name?` | Packs, uploads, waits for the build; returns `{url, app_id, release_id}` |
+| `publish` | `dir` (absolute path), `name?`, `visibility?` (`private` \| `public`) | Packs, uploads, waits for the build; returns `{url, visibility, link, app_id, release_id}`. The agent asks private or public first; private when unsure (T3.5) |
 | `list_apps` | — | Your apps with url, status, expiry |
 | `get_app` | `app` | One app, plus `visibility` and `viewers` (shared emails) |
 | `share` / `unshare` | `app`, `email` | Edit the allowlist (takes effect within 5 s) |

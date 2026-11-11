@@ -15,7 +15,7 @@ const emailSchema = z.string().trim().toLowerCase().email().max(254);
 const shareBody = z.object({ email: emailSchema });
 
 const patchAppBody = z
-  .object({ visibility: z.enum(["allowlist", "instance"]) })
+  .object({ visibility: z.enum(["allowlist", "instance", "public"]) })
   .strict();
 
 function notFound(): ApiError {
@@ -35,7 +35,7 @@ export async function findOwnedApp(
   db: Db["db"],
   ownerId: string,
   idOrSlug: string,
-): Promise<{ id: string; slug: string; visibility: "allowlist" | "instance" }> {
+): Promise<{ id: string; slug: string; visibility: "allowlist" | "instance" | "public" }> {
   const rows = await db
     .select({ id: apps.id, slug: apps.slug, visibility: apps.visibility })
     .from(apps)
@@ -124,7 +124,7 @@ export const shareRoutes: FastifyPluginAsync<ShareRoutesOpts> = async (app, opts
   app.patch<{ Params: { idOrSlug: string } }>("/v1/apps/:idOrSlug", async (request) => {
     const parsed = patchAppBody.safeParse(request.body);
     if (!parsed.success) {
-      throw validationFailed("Only `visibility` can be changed (allowlist | instance)", {
+      throw validationFailed("Only `visibility` can be changed (allowlist | instance | public)", {
         issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
       });
     }

@@ -19,9 +19,17 @@ function fakeDeps(overrides: Partial<ScadMcpDeps> = {}): ScadMcpDeps & { calls: 
   };
   return {
     calls,
-    publish: async (dir, name) => {
-      calls.push(`publish ${dir} ${name ?? ""}`);
-      return { url: app.url, appId: "a1", releaseId: "r1", status: "ready" };
+    publish: async (dir, name, visibility) => {
+      calls.push(`publish ${dir} ${name ?? ""}${visibility ? ` ${visibility}` : ""}`);
+      const v = visibility ?? "allowlist";
+      return {
+        url: app.url,
+        appId: "a1",
+        releaseId: "r1",
+        status: "ready",
+        visibility: v,
+        link: v === "public" ? "Public link: anyone with the link can open it." : "Private link: only people you share it with.",
+      };
     },
     client: {
       listApps: async () => ({ apps: [app] }),
@@ -181,5 +189,30 @@ describe("SCAD MCP server (T1.8)", () => {
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(text(result))).toMatchObject({ release: { version: 1 }, message: expect.stringMatching(/version 1/) });
     expect(deps.calls).toContain("rollback demo");
+  });
+
+  it("publish asks private or public, defaults to private, and says which link it made (T3.5)", async () => {
+    const deps = fakeDeps();
+    const c = await connect(deps);
+    const { tools } = await c.listTools();
+    const publish = tools.find((t) => t.name === "publish");
+    expect(publish?.description).toMatch(/ask the person/i);
+    expect(publish?.description).toMatch(/private \(only people you share it with\) or public \(anyone with the link\)/);
+    expect(publish?.description).toMatch(/no clear answer, use \"private\"/);
+    const schema = publish?.inputSchema as { properties: { visibility: { enum: string[] } }; required?: string[] };
+    expect(schema.properties.visibility.enum).toEqual(["private", "public"]);
+    expect(schema.required ?? []).not.toContain("visibility");
+
+    const unsaid = await c.callTool({ name: "publish", arguments: { dir: "/tmp/app", name: "demo" } });
+    expect(JSON.parse(text(unsaid))).toMatchObject({ visibility: "private", link: expect.stringMatching(/^Private link/) });
+    expect(deps.calls).toContain("publish /tmp/app demo");
+
+    const pub = await c.callTool({ name: "publish", arguments: { dir: "/tmp/app", name: "demo", visibility: "public" } });
+    expect(JSON.parse(text(pub))).toMatchObject({ visibility: "public", link: expect.stringMatching(/^Public link/) });
+    expect(deps.calls).toContain("publish /tmp/app demo public");
+
+    const priv = await c.callTool({ name: "publish", arguments: { dir: "/tmp/app", name: "demo", visibility: "private" } });
+    expect(JSON.parse(text(priv))).toMatchObject({ visibility: "private" });
+    expect(deps.calls).toContain("publish /tmp/app demo allowlist");
   });
 });
