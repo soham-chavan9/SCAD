@@ -8,14 +8,14 @@ import { Builder } from "@scad/builder";
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { listEnv, loadConfig, loginWithDeviceCode, publishDir, setEnv } from "@scad/cli";
+import { listEnv, loginWithDeviceCode, publishDir, setEnv } from "@scad/cli";
 import Docker from "dockerode";
 import { DockerRuntimeProvider, networkName } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
-import { machines, releases } from "./db/schema.js";
+import { apps, machines, releases } from "./db/schema.js";
 import { RuntimeLogCollector } from "./logs/collector.js";
 import { recentRuntimeLogs } from "./logs/runtime-log-store.js";
 
@@ -211,6 +211,12 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
     );
   }
 
+  /** Stay under the instance's 10-live-app limit (AGENTS §14): remove the app's container and retire its row. */
+  async function retire(appId: string): Promise<void> {
+    await runtime.remove(appId, { deleteVolume: true });
+    await dbBundle.db.update(apps).set({ status: "deleted" }).where(eq(apps.id, appId));
+  }
+
   // T3.2: one example per site framework family publishes with no Dockerfile
   // and no scad.json. Dependencies come from the trusted fetch step; the build
   // itself stays offline. Pages are fetched from inside the app's network.
@@ -244,13 +250,7 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
           "wget", "-q", "-O", "-", `http://${host}:${port}${site.page}`,
         ]);
         expect(stdout).toContain(site.expect);
-        // Stay under the instance's 10-live-app limit (AGENTS §14).
-        const { apiUrl, pat } = (await loadConfig(configPath))!;
-        const del = await fetch(`${apiUrl}/v1/apps/${result.appId}`, {
-          method: "DELETE",
-          headers: { authorization: `Bearer ${pat}` },
-        });
-        expect(del.ok).toBe(true);
+        await retire(result.appId);
       },
       600_000,
     );
