@@ -89,10 +89,13 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
       description:
         "Publish a local directory as a private SCAD app and wait until it is live. The directory needs a " +
         "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
-        "no Dockerfile and one of: package.json (Node; npm start / main / server.js), requirements.txt + app.py " +
-        "(Python; packages only as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An " +
-        "optional scad.json sets name, port, start, env, and resources. Builds have NO network: dependencies must " +
-        "be in the upload. Publishing an existing name replaces its release; if the new one fails, the old one " +
+        "no Dockerfile and one of: a website project (Vite/React/Vue/Svelte, Angular, Astro, Next.js with output " +
+        '"export", Docusaurus, Gatsby, VitePress, Eleventy, any package.json `build` script, Hugo, or Jekyll; npm ' +
+        "packages and gems are downloaded for it from the registry, install scripts never run), package.json " +
+        "(Node with no dependencies; npm start / main / server.js), requirements.txt + app.py (Python; packages only " +
+        "as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An optional scad.json sets " +
+        "name, port, start, env, and resources. The build step itself has NO network. Publishing an existing name " +
+        "replaces its release; if the new one fails, the old one " +
         "keeps serving. Inputs: dir (absolute path), name (optional slug, defaults to the folder name). Returns " +
         "{url, app_id, release_id}. Only people you `share` with can open the URL. Errors: BUILD_FAILED (read " +
         "details.log_tail and hint, fix, publish again), MANIFEST_INVALID (hint names the field), " +

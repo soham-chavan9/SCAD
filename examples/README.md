@@ -9,3 +9,5 @@ Sample apps used by later tasks. See `TASKS.md` Appendix A.
 - `adversarial/memory-hog` — hostile: allocates memory forever; the memory limit (no swap) must OOM-kill only it (T2.2, INV6).
 - `hello-python` — no Dockerfile; `requirements.txt` + `app.py`, built by SCAD's Python template (T2.4).
 - `hello-static` — no Dockerfile; a folder with `index.html`, served by SCAD's static template (T2.4).
+- Site builds (T3.2), no Dockerfile and no `scad.json`; each commits its lockfile, and SCAD's trusted fetch downloads the packages before the offline build:
+  `hello-vite` (Vite + React with a client-side `/about` route), `hello-vue`, `hello-svelte` (Vite), `hello-angular`, `hello-astro`, `hello-docusaurus`, `hello-next-export` (Next.js `output: "export"`), `hello-gatsby`, `hello-hugo` (pinned Hugo binary, no packages), `hello-jekyll` (gems from rubygems.org, built offline).
