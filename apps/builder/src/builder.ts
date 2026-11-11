@@ -147,6 +147,7 @@ export class Builder {
             job.releaseId,
             `no Dockerfile: using SCAD's built-in ${plan.label ? `${plan.label} site` : plan.kind} template`,
           );
+          if (plan.note) await this.#log(job.releaseId, plan.note);
         }
       } catch (err) {
         if (err instanceof AutodetectError) {
@@ -163,7 +164,11 @@ export class Builder {
         await this.#log(job.releaseId, `downloading dependencies (${plan.fetch === "npm" ? "npm registry" : "rubygems.org"} only, install scripts off)`);
         try {
           const lines: string[] = [];
-          const opts = { ...this.#fetchDeps, log: (l: string) => lines.push(l) };
+          const opts: FetchOptions = {
+            ...this.#fetchDeps,
+            log: (l: string) => lines.push(l),
+            ...(plan.extraDependencies ? { extraDependencies: plan.extraDependencies } : {}),
+          };
           const fetched = plan.fetch === "npm" ? await fetchNodeDependencies(work, opts) : await fetchRubyGems(work, opts);
           skippedInstallScripts = fetched.skippedInstallScripts;
           await this.#log(job.releaseId, [...lines, fetched.log.trim()].filter(Boolean).join("\n"));

@@ -77,6 +77,12 @@ export type FetchOptions = {
   timeoutMs?: number;
   maxBytes?: number;
   log?: (line: string) => void;
+  /**
+   * T3.3: pinned dependencies SCAD adds to the build copy's package.json (a
+   * framework's Node adapter). Names and versions come from SCAD, never from
+   * the upload; the lockfile is re-resolved (scripts still off) to include them.
+   */
+  extraDependencies?: Record<string, string>;
 };
 
 function policyDirOf(opts: FetchOptions): string {
@@ -163,6 +169,16 @@ export const NPM_FETCH_SCRIPT = [
   'if [ ! -f package-lock.json ]; then echo "scad-fetch: no package-lock.json, resolving one from package.json"; npm install --package-lock-only --ignore-scripts; fi',
   "npm ci --include=dev --include=optional --ignore-scripts",
 ].join("\n");
+
+/** Same as {@link NPM_FETCH_SCRIPT}, but always re-resolves the lockfile (SCAD added a dependency). */
+export const NPM_RELOCK_FETCH_SCRIPT = [
+  "set -e",
+  "npm install --package-lock-only --ignore-scripts",
+  "npm ci --include=dev --include=optional --ignore-scripts",
+].join("\n");
+
+const SAFE_EXTRA_NAME = /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*$/;
+const SAFE_EXTRA_VERSION = /^\d+\.\d+\.\d+$/;
 
 /** Fixed bundler script: lock for this platform and download .gem files only (no install, no extension builds). */
 export const BUNDLER_FETCH_SCRIPT = [
@@ -298,9 +314,20 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
     );
   }
 
+  const extras = Object.entries(opts.extraDependencies ?? {});
+  for (const [name, version] of extras) {
+    if (!SAFE_EXTRA_NAME.test(name) || !SAFE_EXTRA_VERSION.test(version)) throw new Error(`invalid extra dependency ${name}@${version}`);
+  }
+
   const work = await mkdtemp(join(tmpdir(), "scad-fetch-"));
   try {
-    await copyFile(join(ctxDir, "package.json"), join(work, "package.json"));
+    if (extras.length > 0) {
+      const deps = { ...((pkg["dependencies"] as Record<string, string> | undefined) ?? {}) };
+      for (const [name, version] of extras) deps[name] = version;
+      await writeFile(join(work, "package.json"), `${JSON.stringify({ ...pkg, dependencies: deps }, null, 2)}\n`);
+    } else {
+      await copyFile(join(ctxDir, "package.json"), join(work, "package.json"));
+    }
     const npmLock = await firstFile(ctxDir, NPM_LOCKFILES);
     if (npmLock) {
       let lock: unknown;
@@ -337,7 +364,7 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
         image: FETCH_NODE_IMAGE,
         allow: [NPM_REGISTRY_HOST],
         env: npmFetchEnv(proxyUrl, await safeNpmrcEnv(ctxDir)),
-        argv: ["sh", "-ec", NPM_FETCH_SCRIPT],
+        argv: ["sh", "-ec", extras.length > 0 ? NPM_RELOCK_FETCH_SCRIPT : NPM_FETCH_SCRIPT],
       },
       opts,
     );
@@ -363,9 +390,11 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
     const skippedInstallScripts = await packagesWithInstallScripts(modules);
     await rm(join(ctxDir, "node_modules"), { recursive: true, force: true });
     await rename(modules, join(ctxDir, "node_modules"));
-    if (!npmLock) {
-      // The build sees the lockfile npm resolved, so it agrees with node_modules.
+    if (!npmLock || extras.length > 0) {
+      // The build sees the lockfile npm resolved (and any SCAD-added adapter),
+      // so it agrees with node_modules. This is the build copy, not the founder's files.
       await copyFile(join(work, "package-lock.json"), join(ctxDir, "package-lock.json")).catch(() => {});
+      if (extras.length > 0) await copyFile(join(work, "package.json"), join(ctxDir, "package.json"));
     }
     return { log: out.log, skippedInstallScripts };
   } finally {
