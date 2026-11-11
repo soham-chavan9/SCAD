@@ -198,7 +198,7 @@ describe("SCAD MCP server (T1.8)", () => {
     const publish = tools.find((t) => t.name === "publish");
     expect(publish?.description).toMatch(/ask the person/i);
     expect(publish?.description).toMatch(/private \(only people you share it with\) or public \(anyone with the link\)/);
-    expect(publish?.description).toMatch(/no clear answer, use \"private\"/);
+    expect(publish?.description).toMatch(/no clear answer, use "private"/);
     const schema = publish?.inputSchema as { properties: { visibility: { enum: string[] } }; required?: string[] };
     expect(schema.properties.visibility.enum).toEqual(["private", "public"]);
     expect(schema.required ?? []).not.toContain("visibility");
