@@ -275,6 +275,7 @@ export const publishRoutes: FastifyPluginAsync<PublishRoutesOpts> = async (app, 
         slug: appRow.slug,
         ownerId: appRow.ownerId,
         status: appRow.status,
+        visibility: appRow.visibility,
       },
       release: {
         id: release.id,

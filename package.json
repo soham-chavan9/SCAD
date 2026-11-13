@@ -15,11 +15,13 @@
     "test:e2e": "pnpm --filter @scad/e2e test",
     "test:adversarial": "pnpm --filter @scad/adversarial test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "build:install": "node scripts/build-install-bundle.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
     "@types/node": "22.19.1",
+    "esbuild": "0.25.12",
     "eslint": "9.39.1",
     "eslint-config-prettier": "10.1.8",
     "globals": "16.5.0",

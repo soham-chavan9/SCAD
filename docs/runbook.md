@@ -20,6 +20,9 @@ logged in as an operator (an email in `OPERATOR_EMAILS`).
 
 ## Back up
 
+On the production server (`deploy/`), run `bash deploy/backup.sh` instead:
+it does all of the below plus a copy of `.env`; see `docs/deploy.md`.
+
 Do all three together, while nobody is publishing:
 
 ```bash

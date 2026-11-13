@@ -2,7 +2,7 @@ import { parseEmailList } from "./auth/signup.js";
 import { createDb } from "@scad/control-plane";
 import { GithubIdentityProvider } from "./auth/github.js";
 import { FakeIdentityProvider } from "./auth/identity.js";
-import { buildGateway } from "./app.js";
+import { buildGateway, parseTrustProxy } from "./app.js";
 import { assertFakeAuthAllowed } from "./fake-auth-guard.js";
 import { resolveIdentityKeys } from "./identity/keys.js";
 import { SmtpMailer, defaultFromAddress } from "./mail/mailer.js";
@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const fakeAuth = process.env["GATEWAY_FAKE_AUTH"] === "1";
 
   // Refuse to start if fake auth is enabled outside localhost (T0.8).
-  assertFakeAuthAllowed({ fakeAuth, baseDomain });
+  assertFakeAuthAllowed({ fakeAuth, baseDomain, production: process.env["NODE_ENV"] === "production" });
 
   const { db } = createDb(databaseUrl);
   const keys = await resolveIdentityKeys({
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     allowDevLogin: fakeAuth,
     operatorEmails: parseEmailList(process.env["OPERATOR_EMAILS"]),
     machines: createHttpMachineClient({ controlPlaneUrl, internalSecret }),
+    ...trustProxyOpt(parseTrustProxy(process.env["GATEWAY_TRUST_PROXY"])),
   });
 
   await gateway.listen({ port, host: "0.0.0.0" });
@@ -70,6 +71,10 @@ function githubFromEnv(): GithubIdentityProvider | null {
     return null;
   }
   return new GithubIdentityProvider({ clientId: required("GITHUB_CLIENT_ID"), clientSecret: required("GITHUB_CLIENT_SECRET") });
+}
+
+function trustProxyOpt(value: string | undefined): { trustProxy?: string } {
+  return value === undefined ? {} : { trustProxy: value };
 }
 
 function required(name: string): string {

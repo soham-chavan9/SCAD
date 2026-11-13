@@ -5,10 +5,14 @@ import type { IdentityKeyMaterial } from "./keys.js";
 
 export const SCAD_HEADER_PREFIX = "x-scad-";
 
-/** Strip every inbound X-SCAD-* header (INV3), then inject gateway identity. */
+/**
+ * Strip every inbound X-SCAD-* header (INV3), then inject gateway identity.
+ * `user` is null for an anonymous visitor of a public site (T3.5): the
+ * headers are stripped and nothing is injected, so the app sees no identity.
+ */
 export async function buildUpstreamHeaders(opts: {
   incoming: IncomingHttpHeaders;
-  user: GatewayUser;
+  user: GatewayUser | null;
   appId: string;
   issuer: string;
   keys: IdentityKeyMaterial;
@@ -38,6 +42,8 @@ export async function buildUpstreamHeaders(opts: {
     }
     out[key] = Array.isArray(value) ? value.join(", ") : value;
   }
+
+  if (!opts.user) return out;
 
   const jwt = await signIdentityJwt(
     opts.keys.privateKey,

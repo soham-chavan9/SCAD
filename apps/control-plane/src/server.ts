@@ -56,14 +56,15 @@ async function main(): Promise<void> {
   // T2.5: expiry warnings, expiry, grace-period deletion, orphan reaper, usage roll-up.
   const baseDomain = process.env["BASE_DOMAIN"] ?? "localhost:8080";
   const smtpUrl = process.env["SMTP_URL"];
+  const smtpMailer = smtpUrl
+    ? new SmtpMailer({ smtpUrl, from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain) })
+    : undefined;
   const lifecycle = new LifecycleJobs({
     db,
     machines,
     ...(runtime.listApps ? { inventory: { listApps: () => runtime.listApps!() } } : {}),
     baseDomain,
-    mailer: smtpUrl
-      ? new SmtpMailer({ smtpUrl, from: process.env["SMTP_FROM"] ?? defaultFromAddress(baseDomain) })
-      : new LogMailer(),
+    mailer: smtpMailer ?? new LogMailer(),
   });
   startLifecycleJobs(lifecycle, {
     onError: (job, err) => logError(job)(err),
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     ...(process.env["BASE_DOMAIN"] ? { baseDomain: process.env["BASE_DOMAIN"] } : {}),
     ...(process.env["PUBLIC_BASE_URL"] ? { publicBaseUrl: process.env["PUBLIC_BASE_URL"] } : {}),
     internalToken: required("INTERNAL_TOKEN"),
+    ...(smtpMailer ? { mailer: smtpMailer } : {}),
     ...(process.env["INTERNAL_SECRET"]
       ? { internalSecret: process.env["INTERNAL_SECRET"] }
       : {}),

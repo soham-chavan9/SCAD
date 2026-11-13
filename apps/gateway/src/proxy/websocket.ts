@@ -2,7 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import httpProxy from "http-proxy";
 import type { Db } from "@scad/control-plane";
-import { canViewApp } from "../auth/access.js";
+import { decideAccess } from "../auth/access.js";
 import { loadSessionUser } from "../auth/sessions.js";
 import { SESSION_COOKIE } from "../cookies.js";
 import { authHost } from "../host.js";
@@ -90,8 +90,10 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
         const user = sessionId
           ? await loadSessionUser(opts.db, { sessionId, appHost: host })
           : null;
-        // Same ACL as HTTP (owner, allowlist, or instance visibility).
-        if (!user || !(await canViewApp(opts.db, resolved, user))) {
+        // Same ACL as HTTP (owner, allowlist, instance, or a public site,
+        // where an anonymous visitor may connect too: T3.5).
+        const allowed = async () => (await decideAccess(opts.db, resolved, user)).kind === "allow";
+        if (!(await allowed())) {
           socket.destroy();
           return;
         }
@@ -108,7 +110,7 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
 
         const target = upstreamTarget(resolved);
         if (opts.wake) {
-          opts.wake.touch(resolved.appId, user.id);
+          opts.wake.touch(resolved.appId, user?.id ?? null);
           if (opts.wake.needsWake(resolved)) {
             const outcome = await opts.wake.hold(
               opts.wake.wake(resolved.appId, target),
@@ -125,9 +127,10 @@ export function attachWebSocketProxy(server: HttpServer, opts: WsProxyOpts): voi
           headers,
         });
         // Open sockets outlive the upgrade check: re-check the ACL so an
-        // operator suspend or an unshare also closes them (INV9: within 5 s).
+        // operator suspend, an unshare, or public -> private also closes them
+        // (INV9: within 5 s).
         const recheck = setInterval(() => {
-          canViewApp(opts.db, resolved, user)
+          allowed()
             .then((ok) => {
               if (!ok) socket.destroy();
             })

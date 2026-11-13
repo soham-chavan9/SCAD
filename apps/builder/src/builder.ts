@@ -1,14 +1,20 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { deploySpecFromManifest, makeError } from "@scad/shared";
 import { DockerRuntimeProvider, RootImageError, VolumeQuotaExceededError } from "@scad/runtime-docker";
-import { AutodetectError, prepareBuildContext } from "./autodetect.js";
+import { AutodetectError, prepareBuildContext, type BuildPlan } from "./autodetect.js";
 import { buildFailedHint } from "./build-hint.js";
-import { BUILD_TIMEOUT_MS, dockerBuild, type BuildResult } from "./docker-build.js";
+import { BUILD_TIMEOUT_MS, buildEnv, dockerBuild, type BuildResult } from "./docker-build.js";
+import { FetchError, fetchNodeDependencies, fetchRubyGems, type FetchOptions } from "./fetch-deps.js";
+import { ensureHugo, normaliseArch } from "./hugo.js";
 import { SafeExtractError, safeExtractTarball } from "./safe-extract.js";
 
 export { DEFAULT_CPU_SHARES, startToArgv } from "@scad/shared";
+
+const execFileAsync = promisify(execFile);
 
 /** §8 envelope for a deploy that the runtime refused. */
 export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> {
@@ -31,7 +37,7 @@ export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> 
   return makeError(
     "BUILD_FAILED",
     err instanceof Error ? err.message : "Builder failed",
-    "Inspect the build log, fix the app, and republish.",
+    "Read details.log_tail to see what went wrong, fix the files, and publish again.",
     {},
   );
 }
@@ -39,6 +45,7 @@ export function deployErrorEnvelope(err: unknown): ReturnType<typeof makeError> 
 /** §8 envelope for a failed `docker build` (the control plane adds `log_tail`). */
 export function buildFailureEnvelope(
   build: Extract<BuildResult, { ok: false }>,
+  skippedInstallScripts: string[] = [],
 ): ReturnType<typeof makeError> {
   if (build.timedOut) {
     return makeError(
@@ -48,7 +55,15 @@ export function buildFailureEnvelope(
       { timed_out: true },
     );
   }
-  return makeError("BUILD_FAILED", build.message, buildFailedHint(build.log.split("\n").slice(-200)), {});
+  const hint = buildFailedHint(build.log.split("\n").slice(-200));
+  if (skippedInstallScripts.length === 0) return makeError("BUILD_FAILED", build.message, hint, {});
+  const list = skippedInstallScripts.slice(0, 10).join(", ");
+  return makeError(
+    "BUILD_FAILED",
+    build.message,
+    `${hint} Note: SCAD never runs package install scripts, and these packages have one: ${list}. If the error mentions one of them, switch to a version that ships prebuilt binaries or a pure-JavaScript alternative, then republish.`,
+    { skipped_install_scripts: skippedInstallScripts.slice(0, 50) },
+  );
 }
 
 export type ClaimedJob = {
@@ -64,6 +79,8 @@ export type BuilderOptions = {
   internalToken: string;
   runtime?: DockerRuntimeProvider;
   fetchImpl?: typeof fetch;
+  /** Trusted dependency fetch settings (T3.2). */
+  fetchDeps?: FetchOptions;
 };
 
 export class Builder {
@@ -71,12 +88,14 @@ export class Builder {
   readonly #token: string;
   readonly #runtime: DockerRuntimeProvider;
   readonly #fetch: typeof fetch;
+  readonly #fetchDeps: FetchOptions;
 
   constructor(opts: BuilderOptions) {
     this.#baseUrl = opts.controlPlaneUrl.replace(/\/$/, "");
     this.#token = opts.internalToken;
     this.#runtime = opts.runtime ?? new DockerRuntimeProvider();
     this.#fetch = opts.fetchImpl ?? fetch;
+    this.#fetchDeps = opts.fetchDeps ?? {};
   }
 
   async claim(): Promise<ClaimedJob | null> {
@@ -120,10 +139,15 @@ export class Builder {
         manifest: job.manifest,
         runtimeEnv: {},
       });
+      let plan: BuildPlan;
       try {
-        const { kind } = await prepareBuildContext(work, templatePort);
-        if (kind !== "dockerfile") {
-          await this.#log(job.releaseId, `no Dockerfile: using SCAD's built-in ${kind} template`);
+        plan = await prepareBuildContext(work, templatePort, { hugoBinary: () => this.#hugoBinary() });
+        if (plan.kind !== "dockerfile") {
+          await this.#log(
+            job.releaseId,
+            `no Dockerfile: using SCAD's built-in ${plan.label ? `${plan.label} site` : plan.kind} template`,
+          );
+          if (plan.note) await this.#log(job.releaseId, plan.note);
         }
       } catch (err) {
         if (err instanceof AutodetectError) {
@@ -134,12 +158,41 @@ export class Builder {
         throw err;
       }
 
+      // T3.2 trusted fetch: registry-only, scripts off, before the offline build.
+      let skippedInstallScripts: string[] = [];
+      if (plan.fetch) {
+        await this.#log(job.releaseId, `downloading dependencies (${plan.fetch === "npm" ? "npm registry" : "rubygems.org"} only, install scripts off)`);
+        try {
+          const lines: string[] = [];
+          const opts: FetchOptions = {
+            ...this.#fetchDeps,
+            log: (l: string) => lines.push(l),
+            ...(plan.extraDependencies ? { extraDependencies: plan.extraDependencies } : {}),
+            ...(plan.googleFonts ? { googleFonts: plan.googleFonts } : {}),
+          };
+          const fetched = plan.fetch === "npm" ? await fetchNodeDependencies(work, opts) : await fetchRubyGems(work, opts);
+          skippedInstallScripts = fetched.skippedInstallScripts;
+          await this.#log(job.releaseId, [...lines, fetched.log.trim()].filter(Boolean).join("\n"));
+          if (skippedInstallScripts.length > 0) {
+            await this.#log(job.releaseId, `install scripts skipped for: ${skippedInstallScripts.join(", ")}`);
+          }
+        } catch (err) {
+          if (err instanceof FetchError) {
+            if (err.log) await this.#log(job.releaseId, err.log);
+            await this.#log(job.releaseId, `dependency download failed: ${err.message}`);
+            await this.#fail(job.releaseId, err.envelope);
+            return;
+          }
+          throw err;
+        }
+      }
+
       const imageRef = `scad-apps/${job.appId}:v${job.version}`;
       const build = await dockerBuild({ contextDir: work, imageRef });
       await this.#log(job.releaseId, build.log);
 
       if (!build.ok) {
-        await this.#fail(job.releaseId, buildFailureEnvelope(build));
+        await this.#fail(job.releaseId, buildFailureEnvelope(build, skippedInstallScripts));
         return;
       }
 
@@ -185,6 +238,12 @@ export class Builder {
     } finally {
       await rm(work, { recursive: true, force: true });
     }
+  }
+
+  /** Verified Hugo binary for the Docker daemon's architecture (T3.2). */
+  async #hugoBinary(): Promise<string> {
+    const { stdout } = await execFileAsync("docker", ["version", "-f", "{{.Server.Arch}}"], { env: buildEnv(process.env) });
+    return ensureHugo(normaliseArch(String(stdout)));
   }
 
   /** Decrypted stored env for this release's app, fetched just in time (T1.6). */

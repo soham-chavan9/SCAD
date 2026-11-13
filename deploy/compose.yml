@@ -1,0 +1,126 @@
+# SCAD production stack (T3.1). One Linux host, Docker, nothing else.
+#
+#   docker compose -f deploy/compose.yml --env-file .env up -d --build
+#
+# Runs: Caddy (TLS, the only thing listening on the internet: 80/443),
+# Postgres (loopback only), the gateway, and the egress proxy. The control
+# plane and builder run on the host as systemd services (deploy/systemd/),
+# because they drive the Docker socket. See docs/deploy.md.
+#
+# Every public name comes from BASE_DOMAIN; no hostname is hard-coded.
+name: scad
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN:?BASE_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required (Let's Encrypt account email)}
+      CADDY_ISSUER: ${CADDY_ISSUER:-acme}
+      TLS_ASK_URL: ${TLS_ASK_URL:-http://host.docker.internal:4000/internal/tls-ask}
+      CONTROL_PLANE_UPSTREAM: ${CONTROL_PLANE_UPSTREAM:-host.docker.internal:4000}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
+    security_opt: ["no-new-privileges:true"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      edge:
+        # Pinned: the gateway trusts X-Forwarded-For only from this address.
+        ipv4_address: 172.31.250.10
+    depends_on:
+      - gateway
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: scad
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: scad
+    # Loopback only: the control plane on the host connects here. Never 0.0.0.0.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scad -d scad"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [edge]
+
+  gateway:
+    # The runtime driver attaches this container to each app's network by name.
+    container_name: scad-gateway
+    build:
+      context: ..
+      dockerfile: apps/gateway/Dockerfile
+    restart: unless-stopped
+    # No published port: only Caddy reaches it, over the edge network.
+    expose: ["8080"]
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: postgres://scad:${POSTGRES_PASSWORD}@postgres:5432/scad
+      BASE_DOMAIN: ${BASE_DOMAIN:?BASE_DOMAIN is required}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://host.docker.internal:4000}
+      GATEWAY_TRUST_PROXY: 172.31.250.10
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY is required in production}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?JWT_PUBLIC_KEY is required in production}
+      JWT_PREVIOUS_PUBLIC_KEY: ${JWT_PREVIOUS_PUBLIC_KEY:-}
+      # Never fake auth in production: hard-coded off, and the gateway refuses
+      # to start with it on when NODE_ENV=production.
+      GATEWAY_FAKE_AUTH: "0"
+      OPERATOR_EMAILS: ${OPERATOR_EMAILS:?OPERATOR_EMAILS is required}
+      # Gmail: smtps://you%40gmail.com:<app password>@smtp.gmail.com:465 (in .env only).
+      SMTP_URL: ${SMTP_URL:?SMTP_URL is required (sign-in emails)}
+      SMTP_FROM: ${SMTP_FROM:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [edge]
+
+  # T2.1: the only way out for app containers (INV2).
+  egress-proxy:
+    container_name: scad-egress
+    build:
+      context: ../apps/egress-proxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      EGRESS_POLICY_DIR: /policy
+      EGRESS_ALLOWED_DOMAINS: ${EGRESS_ALLOWED_DOMAINS:-*}
+    volumes:
+      - ${SCAD_EGRESS_POLICY_DIR:?SCAD_EGRESS_POLICY_DIR is required (absolute path)}:/policy:ro
+
+networks:
+  # Platform services only (apps get their own networks from the runtime
+  # driver). The only source allowed to reach the control plane on the host
+  # (deploy/firewall.sh), so the subnet is pinned.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

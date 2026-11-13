@@ -20,6 +20,25 @@ const NETWORK_FAILURE = [
 
 /** The `hint` for a failed `docker build`, chosen from what the log shows. */
 export function buildFailedHint(logLines: string[]): string {
+  const noOutput = logLines.find((line) => line.includes("scad: the build finished but no output folder was found"));
+  if (noOutput) {
+    const looked = /looked for: ([^)]*)\)/.exec(noOutput)?.[1] ?? "dist, build, out, public, _site";
+    return (
+      `The site built, but SCAD could not find its output folder (it looked for: ${looked}). ` +
+      "Make the build write the finished site (with an index.html) to dist/, then republish."
+    );
+  }
+  if (
+    logLines.some((line) =>
+      /Failed to fetch( font)? [`'"]?[\w ]+[`'"]? from Google Fonts|fonts\.googleapis\.com|internal\/font\/google|Missing mocked response/i.test(line),
+    )
+  ) {
+    return (
+      "This site loads Google Fonts while it builds, and SCAD builds have no internet. SCAD supplies Google fonts " +
+      "that are published on npm (like Geist and Inter), but not this one. Switch that font to `next/font/local` " +
+      "(with the font file in the project) or load it with a <link> tag in the page, then republish."
+    );
+  }
   if (logLines.some((line) => NETWORK_FAILURE.some((re) => re.test(line)))) {
     return (
       "Builds run with no network access (docker build --network=none), and a RUN step tried to download " +

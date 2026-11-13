@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ScadApiError, type ScadClient } from "@scad/api-client";
 import type { PublishResult } from "@scad/cli";
+import { visibilityFor } from "@scad/shared";
 import { z } from "zod";
 
 export const TOOL_NAMES = [
@@ -13,23 +14,27 @@ export const TOOL_NAMES = [
   "set_env",
   "get_logs",
   "delete_app",
+  "rollback",
 ] as const;
 
 /** The API calls the tools need (a `ScadClient` satisfies it). */
 export type ScadMcpClient = Pick<
   ScadClient,
-  "listApps" | "getApp" | "shareApp" | "unshareApp" | "setEnv" | "streamLogs" | "deleteApp"
+  "listApps" | "getApp" | "shareApp" | "unshareApp" | "setEnv" | "streamLogs" | "deleteApp" | "rollback"
 > &
   Partial<Pick<ScadClient, "listShares">>;
 
 export type ScadMcpDeps = {
   client: ScadMcpClient;
-  /** Pack `dir`, upload, and wait for the build (the CLI's `publishDir`). */
-  publish: (dir: string, name?: string) => Promise<PublishResult>;
+  /**
+   * Pack `dir`, upload, and wait for the build (the CLI's `publishDir`).
+   * `visibility` omitted: a new app is private, an existing one keeps its setting.
+   */
+  publish: (dir: string, name?: string, visibility?: "allowlist" | "public") => Promise<PublishResult>;
 };
 
 const ERRORS_COMMON =
-  "UNAUTHENTICATED (run `scad login`), NOT_FOUND (no such app among yours: check list_apps), " +
+  "UNAUTHENTICATED (not logged in: the person runs `~/.scad/bin/scad login --email <their email>` once), NOT_FOUND (no such app among yours: check list_apps), " +
   "VALIDATION_FAILED (bad input: see hint), RATE_LIMITED, INTERNAL. Every error is the SCAD envelope " +
   "{code, message, hint, details} as JSON; follow `hint`.";
 
@@ -62,7 +67,7 @@ function fail(err: unknown): CallToolResult {
       code: "INTERNAL",
       message,
       hint: /log ?in/i.test(message)
-        ? "Run `scad login` in a terminal, then retry."
+        ? "Ask the person to run `~/.scad/bin/scad login --email <their email>` in a terminal and press Approve in the email, then retry."
         : "Retry; if it persists, check that the SCAD control plane is reachable.",
       details: {},
     };
@@ -87,16 +92,25 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
     "publish",
     {
       description:
-        "Publish a local directory as a private SCAD app and wait until it is live. The directory needs a " +
+        "Publish a local directory as a SCAD website and wait until it is live. BEFORE the first publish of a " +
+        "site, ask the person: \"Should this be private (only people you share it with) or public (anyone with " +
+        "the link)?\" Pass their answer as visibility. If there is no clear answer, use \"private\" (the " +
+        "default). Republishing without visibility keeps the site's current setting. The directory needs a " +
         "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
-        "no Dockerfile and one of: package.json (Node; npm start / main / server.js), requirements.txt + app.py " +
-        "(Python; packages only as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An " +
-        "optional scad.json sets name, port, start, env, and resources. Builds have NO network: dependencies must " +
-        "be in the upload. Publishing an existing name replaces its release; if the new one fails, the old one " +
-        "keeps serving. Inputs: dir (absolute path), name (optional slug, defaults to the folder name). Returns " +
-        "{url, app_id, release_id}. Only people you `share` with can open the URL. Errors: BUILD_FAILED (read " +
-        "details.log_tail and hint, fix, publish again), MANIFEST_INVALID (hint names the field), " +
-        "PORT_NOT_LISTENING / SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), UPLOAD_TOO_LARGE, " +
+        "no Dockerfile and one of: a website project (Vite/React/Vue/Svelte, Angular, Astro, Docusaurus, Gatsby, " +
+        "VitePress, Eleventy, any package.json `build` script, Hugo, Jekyll, or a server-rendered Next.js, Nuxt, " +
+        "SvelteKit, Remix, or Astro site; npm " +
+        "packages and gems are downloaded for it from the registry, install scripts never run), package.json " +
+        "(Node with no dependencies; npm start / main / server.js), requirements.txt + app.py (Python; packages only " +
+        "as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An optional scad.json sets " +
+        "name, port, start, env, and resources. The build step itself has NO network. Publishing an existing name " +
+        "replaces its release; if the new one fails, the old one keeps serving (and `rollback` goes back one " +
+        "version). Inputs: dir (absolute path), name (optional slug, defaults to the folder name), visibility " +
+        "(\"private\" or \"public\"). Returns {url, visibility, link, app_id, release_id}: tell the person the url " +
+        "and the `link` sentence (which kind of link it is). For a private link, `share` it with each friend's " +
+        "email. Errors: BUILD_FAILED (read details.log_tail and hint, fix, publish again), MANIFEST_INVALID (hint " +
+        "names the field), PORT_NOT_LISTENING / SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), " +
+        "UPLOAD_TOO_LARGE, " +
         `LIMIT_EXCEEDED, ${ERRORS_COMMON}`,
       inputSchema: {
         dir: z.string().min(1).describe("Absolute path of the app directory to publish."),
@@ -105,12 +119,26 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
           .regex(/^[a-z0-9-]{3,40}$/)
           .optional()
           .describe("App name/slug: 3-40 chars of a-z, 0-9, -. Defaults to the directory name."),
+        visibility: z
+          .enum(["private", "public"])
+          .optional()
+          .describe(
+            "Ask the person first. private = only people you share it with (default when unsure); " +
+              "public = anyone with the link, no sign-in. Omit on a republish to keep the current setting.",
+          ),
       },
     },
-    ({ dir, name }) =>
+    ({ dir, name, visibility }) =>
       run(async () => {
-        const r = await deps.publish(dir, name);
-        return { url: r.url, app_id: r.appId, release_id: r.releaseId, status: r.status };
+        const r = await deps.publish(dir, name, visibility ? visibilityFor(visibility) : undefined);
+        return {
+          url: r.url,
+          visibility: r.visibility === "public" ? "public" : "private",
+          link: r.link,
+          app_id: r.appId,
+          release_id: r.releaseId,
+          status: r.status,
+        };
       }),
   );
 
@@ -147,8 +175,10 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
     "share",
     {
       description:
-        "Let someone open one of your apps by adding their email to its allowlist. They sign in with GitHub or " +
-        "an email link using that address; they don't need an account yet. Takes effect within 5 seconds. " +
+        "Let someone open one of your sites by adding their email to its allowlist, and email them the link " +
+        "(emailed: true in the result; if false, give them the url yourself). They sign in with an emailed link " +
+        "using that address; they don't need an account yet. Takes effect within 5 seconds. A public site needs " +
+        "no sharing, but sharing still sends the link. " +
         `Inputs: app (slug or id), email. Errors: ${ERRORS_COMMON}`,
       inputSchema: { app: appRef, email: z.email().describe("Email address of the person to share with.") },
     },
@@ -238,6 +268,22 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
       }
       return run(() => client.deleteApp(app));
     },
+  );
+
+  server.registerTool(
+    "rollback",
+    {
+      description:
+        "Undo the last update to a site: go back to the version that was live before the current one, in one " +
+        "step. Use it when the person says something like \"that update broke it, go back\". The site's saved " +
+        "data (/data) and env vars are kept; only the code goes back. Calling it again goes one more version " +
+        "back; the next publish becomes the live version again. Inputs: app. Returns {message, url, release " +
+        "(now live), previous}. Tell the person the message in plain words. Errors: VALIDATION_FAILED (no earlier " +
+        "working version: fix the files and publish again), APP_SUSPENDED (the operator switched the site off), " +
+        `${ERRORS_COMMON}`,
+      inputSchema: { app: appRef },
+    },
+    ({ app }) => run(() => client.rollback(app)),
   );
 
   return server;

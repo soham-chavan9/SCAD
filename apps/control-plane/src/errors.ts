@@ -32,7 +32,7 @@ export function unauthenticated(message = "Missing or invalid credentials"): Api
     401,
     "UNAUTHENTICATED",
     message,
-    "Provide Authorization: Bearer <PAT> from `scad login`.",
+    "You are not logged in to SCAD, or the login expired. Run `scad login --email you@example.com` in a terminal, press Approve in the email, then try again.",
   );
 }
 

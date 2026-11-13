@@ -1,0 +1,14 @@
+{
+  "name": "hello-astro-ssr",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build"
+  },
+  "dependencies": {
+    "@astrojs/node": "11.1.12",
+    "astro": "7.4.10"
+  }
+}

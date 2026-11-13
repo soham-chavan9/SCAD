@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -124,6 +124,84 @@ describe("prepareBuildContext (T2.4 built-in templates)", () => {
   it("ignores a symlinked package.json (never follows links out of the context)", async () => {
     const dir = await fixture({ "index.html": "x" });
     await symlink("/etc/hosts", join(dir, "package.json"));
+    expect(await prepareBuildContext(dir, 8080)).toEqual({ kind: "static" });
+  });
+});
+
+describe("prepareBuildContext: site frameworks (T3.2)", () => {
+  const vite = {
+    "package.json": JSON.stringify({
+      scripts: { build: "vite build" },
+      dependencies: { react: "19.0.0" },
+      devDependencies: { vite: "8.0.0" },
+    }),
+    "index.html": "<div id=root>",
+  };
+
+  it("a Vite site gets the npm fetch, an offline multi-stage build, and SCAD's static server", async () => {
+    const dir = await fixture(vite);
+    expect(await prepareBuildContext(dir, 8080)).toEqual({ kind: "site", framework: "vite-react", label: "Vite (react)", fetch: "npm" });
+    const df = await dockerfileOf(dir);
+    expect(df).toMatch(/^FROM node:22-alpine AS build$/m);
+    expect(df).toContain("RUN npm run build");
+    expect(df).toContain('mv "$d" .scad/site');
+    expect(df).toContain('CMD ["node","/srv/scad-static-server.mjs","/site"]');
+    expect(df.match(/^USER node$/gm)).toHaveLength(2); // build and runtime are non-root
+    expect(df).toContain("PORT=8080");
+    // The build never downloads anything itself (the fetch step did).
+    expect(df).not.toMatch(/npm (install|ci)|curl|wget|apk add|pip install/);
+    expect(await readFile(join(dir, ".scad", "static-server.mjs"), "utf8")).toContain("createStaticServer");
+    // node_modules from the fetch step must reach the build context.
+    expect(await readFile(join(dir, ".dockerignore"), "utf8")).toBe(".git\n");
+  });
+
+  it("replaces an upload's own .scad/ and .dockerignore (they could hide node_modules)", async () => {
+    const dir = await fixture({ ...vite, ".dockerignore": "node_modules\n", ".scad/static-server.mjs": "evil" });
+    await prepareBuildContext(dir, 8080);
+    expect(await readFile(join(dir, ".dockerignore"), "utf8")).toBe(".git\n");
+    expect(await readFile(join(dir, ".scad", "static-server.mjs"), "utf8")).not.toBe("evil");
+  });
+
+  it("without a build script, runs the framework's own build command", async () => {
+    const dir = await fixture({ "package.json": JSON.stringify({ dependencies: { astro: "7.0.0" } }) });
+    expect(await prepareBuildContext(dir, 8080)).toMatchObject({ kind: "site", framework: "astro" });
+    expect(await dockerfileOf(dir)).toContain('RUN ["node_modules/.bin/astro","build"]');
+  });
+
+  it("an Angular site looks for dist/<project>/browser first", async () => {
+    const dir = await fixture({ "package.json": JSON.stringify({ scripts: { build: "ng build" }, dependencies: { "@angular/core": "22.0.0" } }) });
+    await prepareBuildContext(dir, 8080);
+    expect(await dockerfileOf(dir)).toContain("for d in dist/*/browser dist/* dist;");
+  });
+
+  it("a Hugo site uses the verified Hugo binary and no fetch step", async () => {
+    const fakeHugo = await fixture({ hugo: "\x7fELF" });
+    const dir = await fixture({ "hugo.toml": 'title = "x"', "content/_index.md": "hi" });
+    expect(await prepareBuildContext(dir, 8080, { hugoBinary: async () => join(fakeHugo, "hugo") })).toEqual({
+      kind: "hugo",
+      framework: "hugo",
+      label: "Hugo",
+    });
+    expect((await stat(join(dir, ".scad", "hugo"))).mode & 0o111).not.toBe(0);
+    expect(await dockerfileOf(dir)).toContain("RUN ./.scad/hugo --minify --baseURL / --destination .scad/site");
+  });
+
+  it("a Jekyll site fetches gems with bundler and builds offline from vendor/cache", async () => {
+    const dir = await fixture({ Gemfile: 'gem "jekyll"', "_config.yml": "title: x", "index.md": "# hi" });
+    expect(await prepareBuildContext(dir, 8080)).toEqual({ kind: "jekyll", framework: "jekyll", label: "Jekyll", fetch: "bundler" });
+    const df = await dockerfileOf(dir);
+    expect(df).toContain("RUN bundle install --local");
+    expect(df).toContain("bundle exec jekyll build --destination .scad/site");
+  });
+
+  it("an unknown framework with a build script tries dist, build, out, public, _site", async () => {
+    const dir = await fixture({ "package.json": JSON.stringify({ scripts: { build: "parcel build index.html" }, devDependencies: { parcel: "2.0.0" } }) });
+    expect(await prepareBuildContext(dir, 8080)).toMatchObject({ kind: "site", framework: "generic", fetch: "npm" });
+    expect(await dockerfileOf(dir)).toContain("for d in dist build out public _site;");
+  });
+
+  it("a plain index.html site keeps the T2.4 busybox template (no fetch)", async () => {
+    const dir = await fixture({ "index.html": "<h1>hi</h1>" });
     expect(await prepareBuildContext(dir, 8080)).toEqual({ kind: "static" });
   });
 });

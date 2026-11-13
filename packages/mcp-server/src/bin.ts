@@ -14,7 +14,8 @@ async function main(): Promise<void> {
   const client = new ScadClient(config ? { baseUrl: config.apiUrl, pat: config.pat } : { baseUrl: "http://127.0.0.1:4000" });
   const server = createScadMcpServer({
     client,
-    publish: (dir, name) => publishDir({ dir, ...(name ? { name } : {}) }),
+    publish: (dir, name, visibility) =>
+      publishDir({ dir, ...(name ? { name } : {}), ...(visibility ? { visibility } : {}) }),
   });
   if (!config) console.error("scad-mcp: not logged in; tools will return UNAUTHENTICATED until you run `scad login`.");
   await server.connect(new StdioServerTransport());

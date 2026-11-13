@@ -33,6 +33,13 @@ Ways to ship dependencies:
 No Dockerfile at all? The built-in Node, Python, and static templates work the
 same way offline; see [`autodetect.md`](autodetect.md).
 
+**Website projects (T3.2)** get their npm packages (or Jekyll gems) from a
+separate trusted fetch step *before* the build: a container that sees only
+package.json and the lockfile, can reach only `registry.npmjs.org` (or
+`rubygems.org`) through the egress proxy, and runs with install scripts off.
+The build itself is unchanged: still `--network=none`, same argv, same env
+filter. Details in [`autodetect.md`](autodetect.md#the-trusted-fetch-step).
+
 A build that tries the network fails in the `RUN` step (DNS lookups fail,
 connections get "Network unreachable"). The `BUILD_FAILED` envelope carries
 the last 50 log lines in `details.log_tail`.
@@ -45,6 +52,7 @@ the last 50 log lines in `details.log_tail`.
 | docker CLI child gets only `PATH`, `HOME`, `TMPDIR`, `DOCKER_*` | `buildEnv()` | same |
 | builder process drops `MASTER_KEY`, `JWT_PRIVATE_KEY`, `GITHUB_CLIENT_SECRET`, `INTERNAL_SECRET`, `INTERNAL_TOKEN`, `DATABASE_URL`, `SMTP_URL` from its env at startup (after reading `INTERNAL_TOKEN`) | `scrubPlatformSecrets()` in `server.ts` | same |
 | `scripts/m0-smoke.sh` starts the builder under `env -i` with only `PATH`, `HOME`, `DOCKER_HOST`, `INTERNAL_TOKEN`, `SCAD_API_URL` | smoke script | — |
+| The T3.2 fetch step never runs install scripts and reaches only the registry (other hosts and metadata: 403 from the proxy; no direct route; no DNS) | `fetch-deps.ts` | `apps/builder/src/fetch-deps.docker.test.ts` (with a scripts-on positive control) |
 | A `RUN` step cannot reach the control plane (:4000), Postgres (:5432), Mailpit (:1025/:8025), the gateway (:8080) via `host.docker.internal` or the bridge gateway IP, `169.254.169.254`, `1.1.1.1:443`, `8.8.8.8:53`, or DNS | real Docker | `tests/adversarial/src/inv8-build-isolation.test.ts` (with a control build on the default network that must reach Postgres, so the probe is known to work) |
 
 ## Still true / not covered
