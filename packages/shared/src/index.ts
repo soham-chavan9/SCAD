@@ -67,3 +67,5 @@ export {
 } from "./deploy-spec.js";
 
 export { apiBaseUrlFor, apiHostFor, authHostFor, isLocalBaseDomain, schemeFor } from "./hosts.js";
+
+export { describeLink, visibilityFor, type AppVisibility, type LinkKind } from "./visibility.js";

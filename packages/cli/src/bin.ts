@@ -1,5 +1,6 @@
 #!/usr/bin/env node --experimental-strip-types
 import { Command } from "commander";
+import { describeLink, visibilityFor } from "@scad/shared";
 import {
   adminAudit,
   adminDeleteApp,
@@ -58,15 +59,20 @@ async function main(): Promise<void> {
     .description("Publish a directory (Dockerfile, or package.json / requirements.txt / index.html)")
     .argument("[dir]", "Directory to publish", ".")
     .option("--name <slug>", "App slug override")
+    .option("--public", "Anyone with the link can open it, no sign-in (search engines are asked not to list it)")
+    .option("--private", "Only people you share it with can open it (the default for new apps)")
     .option("--config <path>", "Config path", defaultConfigPath())
-    .action(async (dir: string, opts: { name?: string; config: string }) => {
+    .action(async (dir: string, opts: { name?: string; public?: boolean; private?: boolean; config: string }) => {
       try {
+        if (opts.public && opts.private) throw new Error("Pass --public or --private, not both");
         const result = await publishDir({
           dir,
           ...(opts.name ? { name: opts.name } : {}),
+          ...(opts.public ? { visibility: "public" as const } : opts.private ? { visibility: "allowlist" as const } : {}),
           configPath: opts.config,
           onStatus: (line) => console.log(line),
         });
+        console.log(result.link);
         console.log(result.url);
       } catch (err) {
         if (err && typeof err === "object" && "envelope" in err) {
@@ -101,6 +107,20 @@ async function main(): Promise<void> {
         throw err;
       }
     });
+
+  program
+    .command("visibility")
+    .description("Make an app's link private (only people you share with) or public (anyone with the link)")
+    .argument("<app>", "App slug or id")
+    .argument("<kind>", "private | public")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, kind: string, opts: { config: string }) => {
+        if (kind !== "private" && kind !== "public") throw new Error("Use: scad visibility <app> private|public");
+        const out = await setVisibility({ app, visibility: visibilityFor(kind), configPath: opts.config });
+        console.log(`${out.slug}: ${describeLink(out.visibility)}`);
+      }),
+    );
 
   program
     .command("share")

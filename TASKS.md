@@ -226,7 +226,7 @@ Decisions (Nov 11): a hosted copy, not a live tunnel; every kind of website in M
 
 ### Stage 5: private or public link
 
-- [ ] **T3.5 Public links (opt-in, private stays the default)**
+- [x] **T3.5 Public links (opt-in, private stays the default)**
   - Depends: T1.2, T3.4. Human decision Nov 11: the founder chooses per site; the protected link is the default.
   - Steps: `visibility` gains `public` (migration with down; default stays `allowlist`). `scad publish --public`, `scad visibility <app> public|private`, and a `visibility` field on the MCP `publish` tool whose description tells the agent to ask "private (only people you share with) or public (anyone with the link)?" and to use private when there is no clear answer. The gateway serves public sites without sign-in; identity headers and the JWT are injected only when the viewer has a session, and spoofed `X-SCAD-*` headers are always stripped (INV3). Public sites send `X-Robots-Tag: noindex` (anyone with the link, not search engines) and get a per-IP rate limit for anonymous requests. Visibility changes write an audit row; operator suspend still blocks within 5 s (INV9). The publish result says plainly which kind of link it is.
   - Done when: a signed-out browser sees a public site and gets the sign-in page for a private one; switching public to private blocks a signed-out viewer within 5 s; spoofed identity headers never reach a public app; the MCP tool asks and defaults to private; adversarial suite green.

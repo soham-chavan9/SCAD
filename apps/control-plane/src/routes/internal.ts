@@ -16,7 +16,8 @@ const wakeBody = z.object({ appId: z.uuid() });
 /** `requests`: debounced request count from the gateway (defaults to 1). */
 const touchBody = z.object({
   appId: z.uuid(),
-  userId: z.uuid(),
+  /** Absent for anonymous visitors of a public site (T3.5). */
+  userId: z.uuid().optional(),
   requests: z.number().int().min(1).max(1_000_000).optional(),
 });
 
@@ -148,7 +149,7 @@ export const internalRoutes: FastifyPluginAsync<InternalRoutesOpts> = async (app
   app.post("/internal/touch", { config: { internal: true } }, async (request) => {
     const parsed = touchBody.safeParse(request.body);
     if (!parsed.success) {
-      throw validationFailed("appId and userId (uuid) are required");
+      throw validationFailed("appId (uuid) is required; userId must be a uuid when present");
     }
     if (!opts.machines) {
       throw new ApiError(503, "INTERNAL", "No runtime configured", "Start the control plane with a runtime.");

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ScadApiError, type ScadClient } from "@scad/api-client";
 import type { PublishResult } from "@scad/cli";
+import { visibilityFor } from "@scad/shared";
 import { z } from "zod";
 
 export const TOOL_NAMES = [
@@ -25,8 +26,11 @@ export type ScadMcpClient = Pick<
 
 export type ScadMcpDeps = {
   client: ScadMcpClient;
-  /** Pack `dir`, upload, and wait for the build (the CLI's `publishDir`). */
-  publish: (dir: string, name?: string) => Promise<PublishResult>;
+  /**
+   * Pack `dir`, upload, and wait for the build (the CLI's `publishDir`).
+   * `visibility` omitted: a new app is private, an existing one keeps its setting.
+   */
+  publish: (dir: string, name?: string, visibility?: "allowlist" | "public") => Promise<PublishResult>;
 };
 
 const ERRORS_COMMON =
@@ -88,16 +92,21 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
     "publish",
     {
       description:
-        "Publish a local directory as a private SCAD app and wait until it is live. The directory needs a " +
+        "Publish a local directory as a SCAD website and wait until it is live. BEFORE the first publish of a " +
+        "site, ask the person: \"Should this be private (only people you share it with) or public (anyone with " +
+        "the link)?\" Pass their answer as visibility. If there is no clear answer, use \"private\" (the " +
+        "default). Republishing without visibility keeps the site's current setting. The directory needs a " +
         "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
         "no Dockerfile and one of: package.json (Node; npm start / main / server.js), requirements.txt + app.py " +
         "(Python; packages only as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An " +
         "optional scad.json sets name, port, start, env, and resources. Builds have NO network: dependencies must " +
         "be in the upload. Publishing an existing name replaces its release; if the new one fails, the old one " +
-        "keeps serving. Inputs: dir (absolute path), name (optional slug, defaults to the folder name). Returns " +
-        "{url, app_id, release_id}. Only people you `share` with can open the URL. Errors: BUILD_FAILED (read " +
-        "details.log_tail and hint, fix, publish again), MANIFEST_INVALID (hint names the field), " +
-        "PORT_NOT_LISTENING / SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), UPLOAD_TOO_LARGE, " +
+        "keeps serving (and `rollback` goes back one version). Inputs: dir (absolute path), name (optional slug, " +
+        "defaults to the folder name), visibility (\"private\" or \"public\"). Returns {url, visibility, link, " +
+        "app_id, release_id}: tell the person the url and the `link` sentence (which kind of link it is). For a " +
+        "private link, `share` it with each friend's email. Errors: BUILD_FAILED (read details.log_tail and " +
+        "hint, fix, publish again), MANIFEST_INVALID (hint names the field), PORT_NOT_LISTENING / " +
+        "SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), UPLOAD_TOO_LARGE, " +
         `LIMIT_EXCEEDED, ${ERRORS_COMMON}`,
       inputSchema: {
         dir: z.string().min(1).describe("Absolute path of the app directory to publish."),
@@ -106,12 +115,26 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
           .regex(/^[a-z0-9-]{3,40}$/)
           .optional()
           .describe("App name/slug: 3-40 chars of a-z, 0-9, -. Defaults to the directory name."),
+        visibility: z
+          .enum(["private", "public"])
+          .optional()
+          .describe(
+            "Ask the person first. private = only people you share it with (default when unsure); " +
+              "public = anyone with the link, no sign-in. Omit on a republish to keep the current setting.",
+          ),
       },
     },
-    ({ dir, name }) =>
+    ({ dir, name, visibility }) =>
       run(async () => {
-        const r = await deps.publish(dir, name);
-        return { url: r.url, app_id: r.appId, release_id: r.releaseId, status: r.status };
+        const r = await deps.publish(dir, name, visibility ? visibilityFor(visibility) : undefined);
+        return {
+          url: r.url,
+          visibility: r.visibility === "public" ? "public" : "private",
+          link: r.link,
+          app_id: r.appId,
+          release_id: r.releaseId,
+          status: r.status,
+        };
       }),
   );
 

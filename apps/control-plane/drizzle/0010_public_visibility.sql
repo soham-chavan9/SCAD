@@ -1,0 +1,1 @@
+ALTER TYPE "public"."app_visibility" ADD VALUE 'public';

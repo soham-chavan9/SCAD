@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 import { ScadApiError, ScadClient } from "@scad/api-client";
-import { assertFinalAppUrl, makeError } from "@scad/shared";
+import { assertFinalAppUrl, describeLink, makeError, type AppVisibility } from "@scad/shared";
 import { loadConfig } from "./config.js";
 import { createPublishTarball } from "./tar-dir.js";
 
@@ -13,6 +13,11 @@ export type PublishOptions = {
   pollMs?: number;
   fetchImpl?: typeof fetch;
   onStatus?: (line: string) => void;
+  /**
+   * Make the link private (`allowlist`) or public (T3.5). Omitted: a new app
+   * is private, and an existing app keeps its setting.
+   */
+  visibility?: "allowlist" | "public";
 };
 
 export type PublishResult = {
@@ -20,6 +25,9 @@ export type PublishResult = {
   appId: string;
   releaseId: string;
   status: "ready";
+  visibility: AppVisibility;
+  /** One sentence: what kind of link this is. */
+  link: string;
 };
 
 function requireFinalUrl(url: string): string {
@@ -60,6 +68,10 @@ export async function publishDir(opts: PublishOptions): Promise<PublishResult> {
   opts.onStatus?.(`Uploading ${tarball.byteLength} bytes as ${name}`);
   const published = await client.publish({ tarball, name });
   const finalUrl = requireFinalUrl(published.url);
+  let visibility: AppVisibility = published.app.visibility ?? "allowlist";
+  if (opts.visibility && opts.visibility !== visibility) {
+    visibility = (await client.setVisibility(published.app.id, opts.visibility)).app.visibility;
+  }
   opts.onStatus?.(`Build started: release ${published.release.id}`);
   opts.onStatus?.(`URL (when ready): ${finalUrl}`);
 
@@ -74,6 +86,8 @@ export async function publishDir(opts: PublishOptions): Promise<PublishResult> {
         appId: published.app.id,
         releaseId: release.id,
         status: "ready",
+        visibility,
+        link: describeLink(visibility),
       };
     }
     if (release.status === "failed") {
