@@ -14,7 +14,8 @@ const AWAKE_MEMO_MS = 30_000;
 export type MachineClient = {
   wake(appId: string): Promise<void>;
   /** `requests`: how many requests this touch stands for (debounced ones included). */
-  touch(appId: string, userId: string, requests: number): Promise<void>;
+  /** `userId` is null for anonymous visitors of a public site (T3.5): counted, not as a viewer. */
+  touch(appId: string, userId: string | null, requests: number): Promise<void>;
 };
 
 export function createHttpMachineClient(opts: {
@@ -39,7 +40,8 @@ export function createHttpMachineClient(opts: {
   }
   return {
     wake: (appId) => post("/internal/wake", { appId }),
-    touch: (appId, userId, requests) => post("/internal/touch", { appId, userId, requests }),
+    touch: (appId, userId, requests) =>
+      post("/internal/touch", { appId, ...(userId ? { userId } : {}), requests }),
   };
 }
 
@@ -136,8 +138,8 @@ export class WakeCoordinator {
    * window are counted and sent as one touch when the window closes, so every
    * viewer and every request reaches the usage counters (§9 step 8).
    */
-  touch(appId: string, userId: string): void {
-    const key = `${appId} ${userId}`;
+  touch(appId: string, userId: string | null): void {
+    const key = `${appId} ${userId ?? "anonymous"}`;
     const open = this.#touchWindows.get(key);
     if (open) {
       open.pending += 1;
@@ -153,7 +155,7 @@ export class WakeCoordinator {
     timer.unref();
   }
 
-  #sendTouch(appId: string, userId: string, requests: number): void {
+  #sendTouch(appId: string, userId: string | null, requests: number): void {
     // Best effort: a lost touch only undercounts usage; the next window retries keep-awake.
     this.#client.touch(appId, userId, requests).catch(() => undefined);
   }

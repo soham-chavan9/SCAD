@@ -34,7 +34,8 @@ services:
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://scad:scad@postgres:5432/scad
-      BASE_DOMAIN: localhost:8080
+      # Every public URL comes from BASE_DOMAIN (T3.1); production uses deploy/compose.yml.
+      BASE_DOMAIN: ${BASE_DOMAIN:-localhost:8080}
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
       CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://host.docker.internal:4000}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}

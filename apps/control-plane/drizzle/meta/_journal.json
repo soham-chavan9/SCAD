@@ -64,6 +64,20 @@
       "when": 1794312231279,
       "tag": "0008_usage_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794384427524,
+      "tag": "0009_current_release",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794384897332,
+      "tag": "0010_public_visibility",
+      "breakpoints": true
     }
   ]
 }

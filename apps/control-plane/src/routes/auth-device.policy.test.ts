@@ -21,3 +21,14 @@ describe("device approval policy", () => {
     expect(isLoopbackIp(undefined)).toBe(false);
   });
 });
+
+describe("device approval behind the TLS front (T3.1)", () => {
+  it("treats any forwarding header as a remote caller", async () => {
+    const { cameThroughProxy } = await import("./auth-device.js");
+    expect(cameThroughProxy({})).toBe(false);
+    expect(cameThroughProxy({ "x-forwarded-for": "127.0.0.1" })).toBe(true);
+    expect(cameThroughProxy({ forwarded: "for=127.0.0.1" })).toBe(true);
+    expect(cameThroughProxy({ "x-real-ip": "127.0.0.1" })).toBe(true);
+    expect(cameThroughProxy({ via: "1.1 Caddy" })).toBe(true);
+  });
+});

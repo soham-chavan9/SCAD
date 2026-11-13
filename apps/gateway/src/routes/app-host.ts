@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { makeError } from "@scad/shared";
 import type { Db } from "@scad/control-plane";
-import { canViewApp } from "../auth/access.js";
+import { decideAccess } from "../auth/access.js";
+import { SlidingWindowLimiter } from "../auth/rate-limit.js";
 import { LoginCodeError, consumeLoginCode } from "../auth/login-codes.js";
 import { createSession, loadSessionUser } from "../auth/sessions.js";
 import type { GatewayUser } from "../auth/users.js";
@@ -14,6 +15,7 @@ import {
   badCallbackPage,
   forbiddenPage,
   notFoundPage,
+  publicRateLimitedPage,
   wakingPage,
 } from "../pages.js";
 import type { AppResolver, ResolvedApp } from "../resolve.js";
@@ -36,7 +38,15 @@ export type AppHostOpts = {
   wake?: WakeCoordinator;
   wakeBudgetMs?: number;
   htmlHoldMs?: number;
+  /** Anonymous requests to public sites allowed per IP per minute (T3.5). */
+  publicPerIpPerMinute?: number;
 };
+
+/** T3.5: anonymous visitors of public sites, per IP, per minute. A page with ~50 assets loads ~6 times a minute. */
+export const PUBLIC_ANON_PER_IP_PER_MINUTE = 300;
+
+/** Public sites are for anyone with the link, not search engines (T3.5). */
+export const NOINDEX = "noindex, nofollow";
 
 /** 503 while the app starts: wait page for browsers, Retry-After for everything else. */
 function sendWaking(request: FastifyRequest, reply: FastifyReply, outcome: HoldOutcome) {
@@ -73,10 +83,13 @@ function issuerUrl(baseDomain: string): string {
   return `${proto}://${authHost(baseDomain)}`;
 }
 
-async function requireAppSession(
-  request: FastifyRequest,
-  opts: AppHostOpts,
-): Promise<{ resolved: ResolvedApp; user: GatewayUser } | { redirect: string } | { forbidden: true } | { notFound: true }> {
+type Gate =
+  | { resolved: ResolvedApp; user: GatewayUser | null; isPublic: boolean }
+  | { redirect: string }
+  | { forbidden: true }
+  | { notFound: true };
+
+async function gateRequest(request: FastifyRequest, opts: AppHostOpts): Promise<Gate> {
   const host = requestHost(request);
   const resolved = await opts.resolver.resolve(host);
   if (!resolved) {
@@ -87,18 +100,23 @@ async function requireAppSession(
   const user = sessionId
     ? await loadSessionUser(opts.db, { sessionId, appHost: host })
     : null;
-  if (!user) {
+
+  const decision = await decideAccess(opts.db, resolved, user);
+  if (decision.kind === "sign_in") {
     return { redirect: loginRedirectUrl(opts.baseDomain, request) };
   }
-
-  if (!(await canViewApp(opts.db, resolved, user))) {
+  if (decision.kind === "forbidden") {
     return { forbidden: true };
   }
-
-  return { resolved, user };
+  return { resolved, user, isPublic: decision.isPublic };
 }
 
 export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) => {
+  const anonymousPerIp = new SlidingWindowLimiter({
+    limit: opts.publicPerIpPerMinute ?? PUBLIC_ANON_PER_IP_PER_MINUTE,
+    windowMs: 60_000,
+  });
+
   app.get("/__scad/callback", async (request, reply) => {
     const host = requestHost(request);
     const query = request.query as { code?: string; return_to?: string };
@@ -142,7 +160,7 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
   });
 
   app.all("/*", async (request, reply) => {
-    const gate = await requireAppSession(request, opts);
+    const gate = await gateRequest(request, opts);
     if ("notFound" in gate) {
       return reply.status(404).type("text/html").send(notFoundPage());
     }
@@ -153,11 +171,24 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
       return reply.status(403).type("text/html").send(forbiddenPage());
     }
 
-    const { resolved, user } = gate;
+    const { resolved, user, isPublic } = gate;
+    if (isPublic) {
+      void reply.header("x-robots-tag", NOINDEX);
+      // Anonymous traffic is the only kind a stranger can generate at will.
+      if (!user && !anonymousPerIp.take(`${request.ip} ${resolved.appId}`, new Date())) {
+        void reply.status(429).header("retry-after", "60").header("cache-control", "no-store");
+        if (isHtmlNavigation(request)) {
+          return reply.type("text/html").send(publicRateLimitedPage());
+        }
+        return reply.send(
+          makeError("RATE_LIMITED", "Too many requests to this site from your network", "Wait a minute, then retry.", {}),
+        );
+      }
+    }
     const target = upstreamTarget(resolved);
     const wake = opts.wake;
     if (wake) {
-      wake.touch(resolved.appId, user.id);
+      wake.touch(resolved.appId, user?.id ?? null);
       if (wake.needsWake(resolved)) {
         const holdMs = isHtmlNavigation(request)
           ? (opts.htmlHoldMs ?? HTML_HOLD_MS)
@@ -179,6 +210,8 @@ export const appHostRoutes: FastifyPluginAsync<AppHostOpts> = async (app, opts) 
     const dest = `http://${target.host}:${target.port}`;
     return reply.from(`${dest}${request.url}`, {
       rewriteRequestHeaders: () => identityHeaders,
+      // An app cannot opt its public site back into search results.
+      ...(isPublic ? { rewriteHeaders: (headers: Record<string, unknown>) => ({ ...headers, "x-robots-tag": NOINDEX }) } : {}),
       onError: (errReply, { error }) => {
         // Stale "running" status: the app was idle-stopped. Wake it; the body can't be replayed.
         if (wake && isConnectFailure(error)) {

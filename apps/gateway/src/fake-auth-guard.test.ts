@@ -41,4 +41,13 @@ describe("assertFakeAuthAllowed", () => {
       assertFakeAuthAllowed({ fakeAuth: true, baseDomain: "foo.localhost:8080" }),
     ).not.toThrow();
   });
+
+  it("refuses fake auth in production even on localhost (T3.1)", () => {
+    expect(() =>
+      assertFakeAuthAllowed({ fakeAuth: true, baseDomain: "localhost:8080", production: true }),
+    ).toThrow(/production/);
+    expect(() =>
+      assertFakeAuthAllowed({ fakeAuth: false, baseDomain: "scad.example.org", production: true }),
+    ).not.toThrow();
+  });
 });

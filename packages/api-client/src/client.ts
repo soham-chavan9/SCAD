@@ -11,10 +11,16 @@ export type DeviceCodeResponse = {
   user_code: string;
   verification_uri: string;
   interval: number;
+  /** Present when an approval link was requested by email (T3.4). */
+  approval?: "email";
+  message?: string;
 };
 
+/** Who may open an app: allowlist (private, the default), instance, or public (T3.5). */
+export type Visibility = "allowlist" | "instance" | "public";
+
 export type PublishResponse = {
-  app: { id: string; slug: string; ownerId: string; status: string };
+  app: { id: string; slug: string; ownerId: string; status: string; visibility?: Visibility };
   release: { id: string; version: number; status: string };
   url: string;
 };
@@ -47,7 +53,7 @@ export type EnvUpdate = { env: EnvEntry[]; applied: "redeployed" | "next_publish
 
 export type AppShares = {
   app_id: string;
-  visibility: "allowlist" | "instance";
+  visibility: Visibility;
   viewers: { email: string; granted_at: string }[];
 };
 
@@ -108,6 +114,15 @@ export class ScadApiError extends Error {
   }
 }
 
+export type RollbackResult = {
+  app_id: string;
+  slug: string;
+  url: string | null;
+  release: { id: string; version: number };
+  previous: { id: string; version: number };
+  message: string;
+};
+
 export class ScadClient {
   readonly baseUrl: string;
   pat: string | undefined;
@@ -119,8 +134,12 @@ export class ScadClient {
     this.#fetch = opts.fetchImpl ?? fetch;
   }
 
-  async startDeviceAuth(): Promise<DeviceCodeResponse> {
-    return this.#json("/v1/auth/device", { method: "POST" });
+  /** Start `scad login`. With `email`, an operator gets an approval link by email (T3.4). */
+  async startDeviceAuth(email?: string): Promise<DeviceCodeResponse> {
+    return this.#json("/v1/auth/device", {
+      method: "POST",
+      ...(email ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) } : {}),
+    });
   }
 
   async pollDeviceToken(
@@ -189,7 +208,12 @@ export class ScadClient {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, { method: "DELETE", auth: true });
   }
 
-  async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string }> {
+  /** T3.6 POST /apps/:id/rollback: serve the release before the current one again. */
+  async rollback(idOrSlug: string): Promise<RollbackResult> {
+    return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/rollback`, { method: "POST", auth: true });
+  }
+
+  async shareApp(idOrSlug: string, email: string): Promise<{ app_id: string; email: string; emailed?: boolean }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}/share`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -235,8 +259,8 @@ export class ScadClient {
 
   async setVisibility(
     idOrSlug: string,
-    visibility: "allowlist" | "instance",
-  ): Promise<{ app: { id: string; slug: string; visibility: "allowlist" | "instance" } }> {
+    visibility: Visibility,
+  ): Promise<{ app: { id: string; slug: string; visibility: Visibility } }> {
     return this.#json(`/v1/apps/${encodeURIComponent(idOrSlug)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
