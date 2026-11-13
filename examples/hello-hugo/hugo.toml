@@ -1,0 +1,3 @@
+baseURL = "https://example.invalid/"
+title = "hello-hugo"
+disableKinds = ["taxonomy", "term", "rss", "sitemap"]

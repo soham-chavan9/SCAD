@@ -21,4 +21,18 @@ describe("BUILD_FAILED hint (T1.8)", () => {
     expect(hint).not.toMatch(/no network/i);
     expect(hint).toMatch(/log_tail/);
   });
+
+  it("names the output folders SCAD looked for when a site build left none (T3.2)", () => {
+    const hint = buildFailedHint([
+      "#12 scad: the build finished but no output folder was found (looked for: dist build out public _site)",
+    ]);
+    expect(hint).toContain("dist build out public _site");
+    expect(hint).toMatch(/output folder/);
+  });
+
+  it("explains Google Fonts downloads in offline builds (T3.2)", () => {
+    const hint = buildFailedHint(["Failed to fetch `Geist` from Google Fonts."]);
+    expect(hint).toMatch(/next\/font\/local|self-hosted/);
+  });
 });
+

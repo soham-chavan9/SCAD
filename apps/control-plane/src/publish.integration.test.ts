@@ -6,18 +6,21 @@ import { eq, sql } from "drizzle-orm";
 import { ScadApiError } from "@scad/api-client";
 import { Builder } from "@scad/builder";
 import { randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { listEnv, loginWithDeviceCode, publishDir, setEnv } from "@scad/cli";
 import Docker from "dockerode";
-import { DockerRuntimeProvider } from "@scad/runtime-docker";
+import { DockerRuntimeProvider, networkName } from "@scad/runtime-docker";
 import { buildApp, type AppInstance } from "./app.js";
 import { createDb, type Db } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { assertTruncateAllowed } from "./db/test-db.js";
-import { machines, releases } from "./db/schema.js";
+import { apps, machines, releases } from "./db/schema.js";
 import { RuntimeLogCollector } from "./logs/collector.js";
 import { recentRuntimeLogs } from "./logs/runtime-log-store.js";
 
 const databaseUrl = process.env["DATABASE_URL"];
+const execFileAsync = promisify(execFile);
 
 async function writeFixture(
   root: string,
@@ -205,6 +208,51 @@ describe.runIf(Boolean(databaseUrl))("publish flow (T0.5)", () => {
         ).toBe("running");
       },
       300_000,
+    );
+  }
+
+  /** Stay under the instance's 10-live-app limit (AGENTS §14): remove the app's container and retire its row. */
+  async function retire(appId: string): Promise<void> {
+    await runtime.remove(appId, { deleteVolume: true });
+    await dbBundle.db.update(apps).set({ status: "deleted" }).where(eq(apps.id, appId));
+  }
+
+  // T3.2: one example per site framework family publishes with no Dockerfile
+  // and no scad.json. Dependencies come from the trusted fetch step; the build
+  // itself stays offline. Pages are fetched from inside the app's network.
+  for (const site of [
+    { name: "hello-vite", page: "/about", expect: "hello-vite" },
+    { name: "hello-vue", page: "/", expect: "hello-vue" },
+    { name: "hello-svelte", page: "/", expect: "hello-svelte" },
+    { name: "hello-angular", page: "/about", expect: "hello-angular" },
+    { name: "hello-astro", page: "/about/", expect: "hello-astro: about" },
+    { name: "hello-docusaurus", page: "/second/", expect: "Second page" },
+    { name: "hello-next-export", page: "/about", expect: "hello-next-export: about" },
+    { name: "hello-gatsby", page: "/about/", expect: "hello-gatsby: about" },
+    { name: "hello-hugo", page: "/about/", expect: "hello-hugo: About" },
+    { name: "hello-jekyll", page: "/about/", expect: "hello-jekyll: about" },
+  ]) {
+    it(
+      `publishes examples/${site.name} with no Dockerfile or scad.json, and ${site.page} loads (T3.2)`,
+      async () => {
+        const dir = join(process.cwd(), "examples", site.name);
+        const result = await publishDir({ dir, name: site.name, configPath, pollMs: 500 });
+        appIds.push(result.appId);
+        const [release] = await dbBundle.db.select().from(releases).where(eq(releases.id, result.releaseId)).limit(1);
+        expect(release?.status, JSON.stringify(release?.error)).toBe("ready");
+        const [machine] = await dbBundle.db.select().from(machines).where(eq(machines.appId, result.appId)).limit(1);
+        const ref = { appId: result.appId, providerId: machine!.providerId };
+        expect(await runtime.status(ref)).toBe("running");
+        const { host, port } = await runtime.address(ref);
+        // A client-side or nested route answers 200 with the page (no 404 on reload).
+        const { stdout } = await execFileAsync("docker", [
+          "run", "--rm", "--network", networkName(result.appId), "busybox:1.36",
+          "wget", "-q", "-O", "-", `http://${host}:${port}${site.page}`,
+        ]);
+        expect(stdout).toContain(site.expect);
+        await retire(result.appId);
+      },
+      600_000,
     );
   }
 

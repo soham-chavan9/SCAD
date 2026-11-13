@@ -1,0 +1,15 @@
+{
+  "name": "hello-docusaurus",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "start": "docusaurus start",
+    "build": "docusaurus build"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

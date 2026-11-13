@@ -208,7 +208,7 @@ Decisions (Nov 11): a hosted copy, not a live tunnel; every kind of website in M
 
 ### Stage 2: every static website builds
 
-- [ ] **T3.2 Static site builds with a trusted dependency fetch**
+- [x] **T3.2 Static site builds with a trusted dependency fetch**
   - Depends: T2.4. Steps: a trusted fetch container with registry-only egress (npm, and RubyGems for Jekyll) runs before the `--network=none` build: `npm ci --ignore-scripts` from the lockfile (npm, pnpm, yarn, bun lockfiles; `--package-lock-only --ignore-scripts` first when there is none) and `bundle cache` for Jekyll; pinned Hugo binary from a checksum-verified release; size and time caps; the fetch never sees platform secrets. The build runs the `build` script offline, then the image keeps only the output folder behind the existing static server, with single-page-app fallback to `index.html`. Detect: Vite (React, Vue, Svelte, Solid, Preact), Create React App, Angular, Astro (static), Gatsby, Docusaurus, VitePress, Eleventy, Next.js `output: "export"`, Nuxt `generate`, SvelteKit `adapter-static`, Hugo, Jekyll; unknown frameworks fall back to `npm run build` plus the first of `dist/`, `build/`, `out/`, `public/`, `_site/`. Packages that need install scripts or native builds fail with a hint naming the package.
   - Done when: one example per framework family publishes with no Dockerfile and no `scad.json` (`hello-vite`, `hello-vue`, `hello-svelte`, `hello-angular`, `hello-astro`, `hello-docusaurus`, `hello-next-export`, `hello-hugo`, `hello-jekyll`); client-side routes reload without 404; the build step still has no network (INV8 test unchanged and green); a `postinstall` script does not run; a fetch to a non-registry host is refused.
 

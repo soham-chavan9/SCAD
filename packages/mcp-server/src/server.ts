@@ -97,16 +97,19 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
         "the link)?\" Pass their answer as visibility. If there is no clear answer, use \"private\" (the " +
         "default). Republishing without visibility keeps the site's current setting. The directory needs a " +
         "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
-        "no Dockerfile and one of: package.json (Node; npm start / main / server.js), requirements.txt + app.py " +
-        "(Python; packages only as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An " +
-        "optional scad.json sets name, port, start, env, and resources. Builds have NO network: dependencies must " +
-        "be in the upload. Publishing an existing name replaces its release; if the new one fails, the old one " +
-        "keeps serving (and `rollback` goes back one version). Inputs: dir (absolute path), name (optional slug, " +
-        "defaults to the folder name), visibility (\"private\" or \"public\"). Returns {url, visibility, link, " +
-        "app_id, release_id}: tell the person the url and the `link` sentence (which kind of link it is). For a " +
-        "private link, `share` it with each friend's email. Errors: BUILD_FAILED (read details.log_tail and " +
-        "hint, fix, publish again), MANIFEST_INVALID (hint names the field), PORT_NOT_LISTENING / " +
-        "SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), UPLOAD_TOO_LARGE, " +
+        "no Dockerfile and one of: a website project (Vite/React/Vue/Svelte, Angular, Astro, Next.js with output " +
+        '"export", Docusaurus, Gatsby, VitePress, Eleventy, any package.json `build` script, Hugo, or Jekyll; npm ' +
+        "packages and gems are downloaded for it from the registry, install scripts never run), package.json " +
+        "(Node with no dependencies; npm start / main / server.js), requirements.txt + app.py (Python; packages only " +
+        "as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An optional scad.json sets " +
+        "name, port, start, env, and resources. The build step itself has NO network. Publishing an existing name " +
+        "replaces its release; if the new one fails, the old one keeps serving (and `rollback` goes back one " +
+        "version). Inputs: dir (absolute path), name (optional slug, defaults to the folder name), visibility " +
+        "(\"private\" or \"public\"). Returns {url, visibility, link, app_id, release_id}: tell the person the url " +
+        "and the `link` sentence (which kind of link it is). For a private link, `share` it with each friend's " +
+        "email. Errors: BUILD_FAILED (read details.log_tail and hint, fix, publish again), MANIFEST_INVALID (hint " +
+        "names the field), PORT_NOT_LISTENING / SMOKE_CHECK_FAILED (app didn't answer HTTP on its port), " +
+        "UPLOAD_TOO_LARGE, " +
         `LIMIT_EXCEEDED, ${ERRORS_COMMON}`,
       inputSchema: {
         dir: z.string().min(1).describe("Absolute path of the app directory to publish."),
