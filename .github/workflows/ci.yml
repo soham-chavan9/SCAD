@@ -66,6 +66,16 @@ jobs:
       - name: Migrate database
         run: pnpm db:migrate
 
+      - name: Start egress proxy
+        # T3.2/T3.3 site builds download dependencies through it (registry only).
+        # INTERNAL_SECRET is only needed so Compose can read the file; the gateway is not started.
+        env:
+          INTERNAL_SECRET: ci-placeholder
+        run: |
+          mkdir -p ~/.scad/egress-policy
+          docker compose up -d --build --wait egress-proxy
+          docker ps --filter name=scad-egress
+
       - name: Test
         run: pnpm test
         # Docker-backed runtime conformance (T0.4) needs the daemon (preinstalled on ubuntu-latest).
