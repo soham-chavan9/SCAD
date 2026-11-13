@@ -16,6 +16,12 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=full
 PrivateTmp=true
+# The dependency fetch bind-mounts its workspace into a container, so the
+# Docker daemon must see the same path. PrivateTmp hides /tmp and /var/tmp
+# from it; keep temp files in a state directory both can see.
+StateDirectory=scad-builder/tmp
+StateDirectoryMode=0750
+Environment=TMPDIR=/var/lib/scad-builder/tmp
 
 [Install]
 WantedBy=multi-user.target
