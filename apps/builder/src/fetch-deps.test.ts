@@ -274,6 +274,8 @@ describe("fetch output is checked on the host (INV8: no secrets through links)",
     await symlink(join(d, "secret.txt"), join(d, "link.txt"));
     await expect(copyFetchedFile(join(d, "link.txt"), join(d, "out2.txt"))).rejects.toBeInstanceOf(FetchError);
 
+    await expect(copyFetchedFile(join(d, "src.txt"), join(d, "big.txt"), 4)).rejects.toThrow(/larger than/);
+
     await symlink(join(d, "secret.txt"), join(d, "dst-link.txt"));
     await copyFetchedFile(join(d, "src.txt"), join(d, "dst-link.txt"));
     expect(await readFile(join(d, "secret.txt"), "utf8")).toBe("host-secret");

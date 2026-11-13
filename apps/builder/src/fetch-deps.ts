@@ -263,8 +263,11 @@ export async function assertSafeFetchedTree(dir: string, opts: { allowLinks: boo
   }
 }
 
-/** Copy one file the sandbox wrote: a regular file only, never through a link, on either end. */
-export async function copyFetchedFile(src: string, dst: string): Promise<void> {
+/** Largest lockfile or manifest the host reads back from the sandbox (big npm lockfiles are a few MB). */
+export const MAX_FETCHED_FILE_BYTES = 32 * 1024 * 1024;
+
+/** Copy one file the sandbox wrote: a regular file only, never through a link, on either end, and size-capped. */
+export async function copyFetchedFile(src: string, dst: string, maxBytes = MAX_FETCHED_FILE_BYTES): Promise<void> {
   let input;
   try {
     input = await open(src, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -272,12 +275,21 @@ export async function copyFetchedFile(src: string, dst: string): Promise<void> {
     throw unsafeFetchOutput(src);
   }
   try {
-    if (!(await input.stat()).isFile()) throw unsafeFetchOutput(src);
-    const data = await input.readFile();
+    const st = await input.stat();
+    if (!st.isFile()) throw unsafeFetchOutput(src);
+    if (st.size > maxBytes) {
+      throw new FetchError(
+        `A downloaded lockfile is larger than ${Math.round(maxBytes / 1048576)} MB`,
+        "Lockfiles are normally far smaller. Regenerate it locally (npm install or bundle install), then republish.",
+        { phase: "fetch", max_bytes: maxBytes },
+      );
+    }
+    const data = Buffer.alloc(st.size);
+    const { bytesRead } = await input.read(data, 0, st.size, 0);
     await rm(dst, { force: true });
     const output = await open(dst, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
     try {
-      await output.writeFile(data);
+      await output.writeFile(data.subarray(0, bytesRead));
     } finally {
       await output.close();
     }
