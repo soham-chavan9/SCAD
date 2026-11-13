@@ -120,6 +120,7 @@ sudo -iu scad
 cd /opt/scad
 docker compose -f deploy/compose.yml --env-file .env up -d --build
 bash scripts/with-env.sh pnpm db:migrate
+pnpm build:install   # the one-file client laptops download (docs/getting-started.md)
 exit
 sudo cp /opt/scad/deploy/systemd/scad-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -143,14 +144,13 @@ week), plenty for a few dozen sites.
 
 ## 8. Publish the first site
 
-From your laptop, follow `docs/getting-started.md` (one pasted command), or
-by hand:
+From your laptop, follow `docs/getting-started.md`: one pasted command,
 
 ```bash
-export SCAD_API_URL=https://api.myscad.duckdns.org
-scad login
-scad publish examples/hello-static
+curl -fsSL https://api.myscad.duckdns.org/install.sh | sh
 ```
+
+then ask your AI to publish `examples/hello-static`.
 
 Open the printed `https://hello-static.<you>.myscad.duckdns.org` on a phone
 over mobile data, ask for a sign-in link, open the email, see the page.
@@ -188,6 +188,7 @@ sudo -iu scad
 cd /opt/scad && git pull && pnpm install --frozen-lockfile
 docker compose -f deploy/compose.yml --env-file .env up -d --build
 bash scripts/with-env.sh pnpm db:migrate
+pnpm build:install
 exit
 sudo systemctl restart scad-control-plane scad-builder
 ```

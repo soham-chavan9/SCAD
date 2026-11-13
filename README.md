@@ -63,7 +63,8 @@ Local services:
 Operating it (backups, restore, key rotation, suspending and deleting users,
 disaster reset): [`docs/runbook.md`](docs/runbook.md). Putting it on the
 internet with `https://` links (a free VM, DuckDNS, Gmail):
-[`docs/deploy.md`](docs/deploy.md).
+[`docs/deploy.md`](docs/deploy.md). Using a deployed SCAD from your laptop
+(one pasted command, then ask your AI): [`docs/getting-started.md`](docs/getting-started.md).
 
 ### Hostnames
 

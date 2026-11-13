@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export type DevicePending = {
   deviceCode: string;
@@ -7,7 +7,11 @@ export type DevicePending = {
   expiresAt: number;
   authorizedUserId?: string;
   patToken?: string;
+  /** T3.4: approval by emailed link. Only the token's hash is kept. */
+  emailApproval?: { tokenHash: string; email: string };
 };
+
+const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** In-memory device-code store (single control-plane process; fine for local M0). */
 export class DeviceStore {
@@ -52,6 +56,38 @@ export class DeviceStore {
     pending.authorizedUserId = userId;
     pending.patToken = patToken;
     return true;
+  }
+
+  /**
+   * Bind a one-time approval link to a pending code, for `email` (T3.4).
+   * Returns the token for the link; a second call replaces the first link.
+   */
+  issueEmailApproval(userCode: string, email: string): string | undefined {
+    const pending = this.getByUserCode(userCode);
+    if (!pending) return undefined;
+    const token = randomBytes(32).toString("base64url");
+    pending.emailApproval = { tokenHash: hashToken(token), email };
+    return token;
+  }
+
+  /** Look up an approval link without using it (the confirm page). */
+  peekEmailApproval(token: string): { userCode: string; email: string } | undefined {
+    const tokenHash = hashToken(token);
+    for (const pending of this.#byDevice.values()) {
+      if (pending.emailApproval?.tokenHash !== tokenHash) continue;
+      if (!this.getByDeviceCode(pending.deviceCode)) return undefined;
+      return { userCode: pending.userCode, email: pending.emailApproval.email };
+    }
+    return undefined;
+  }
+
+  /** Use an approval link: single use, expires with its device code. */
+  takeEmailApproval(token: string): { userCode: string; email: string } | undefined {
+    const found = this.peekEmailApproval(token);
+    if (!found) return undefined;
+    const pending = this.getByUserCode(found.userCode);
+    if (pending) delete pending.emailApproval;
+    return found;
   }
 
   consumePat(deviceCode: string): string | "pending" | "expired" {
