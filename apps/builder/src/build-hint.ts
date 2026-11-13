@@ -28,10 +28,15 @@ export function buildFailedHint(logLines: string[]): string {
       "Make the build write the finished site (with an index.html) to dist/, then republish."
     );
   }
-  if (logLines.some((line) => /Failed to fetch( font)? [`'"]?[\w ]+[`'"]? from Google Fonts|fonts\.googleapis\.com/i.test(line))) {
+  if (
+    logLines.some((line) =>
+      /Failed to fetch( font)? [`'"]?[\w ]+[`'"]? from Google Fonts|fonts\.googleapis\.com|internal\/font\/google|Missing mocked response/i.test(line),
+    )
+  ) {
     return (
-      "The build tried to download Google Fonts, but builds run with no network. Use self-hosted fonts instead " +
-      '(for Next.js: `next/font/local`, or the `geist` npm package for Geist), then republish.'
+      "This site loads Google Fonts while it builds, and SCAD builds have no internet. SCAD supplies Google fonts " +
+      "that are published on npm (like Geist and Inter), but not this one. Switch that font to `next/font/local` " +
+      "(with the font file in the project) or load it with a <link> tag in the page, then republish."
     );
   }
   if (logLines.some((line) => NETWORK_FAILURE.some((re) => re.test(line)))) {

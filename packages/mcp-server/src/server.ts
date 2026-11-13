@@ -97,8 +97,9 @@ export function createScadMcpServer(deps: ScadMcpDeps): McpServer {
         "the link)?\" Pass their answer as visibility. If there is no clear answer, use \"private\" (the " +
         "default). Republishing without visibility keeps the site's current setting. The directory needs a " +
         "Dockerfile (the image must run as a non-root USER and listen on the manifest port, default 8080), or " +
-        "no Dockerfile and one of: a website project (Vite/React/Vue/Svelte, Angular, Astro, Next.js with output " +
-        '"export", Docusaurus, Gatsby, VitePress, Eleventy, any package.json `build` script, Hugo, or Jekyll; npm ' +
+        "no Dockerfile and one of: a website project (Vite/React/Vue/Svelte, Angular, Astro, Docusaurus, Gatsby, " +
+        "VitePress, Eleventy, any package.json `build` script, Hugo, Jekyll, or a server-rendered Next.js, Nuxt, " +
+        "SvelteKit, Remix, or Astro site; npm " +
         "packages and gems are downloaded for it from the registry, install scripts never run), package.json " +
         "(Node with no dependencies; npm start / main / server.js), requirements.txt + app.py (Python; packages only " +
         "as vendored wheels/), or index.html (static site). Apps should listen on $PORT. An optional scad.json sets " +

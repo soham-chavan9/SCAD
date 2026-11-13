@@ -31,8 +31,15 @@ describe("BUILD_FAILED hint (T1.8)", () => {
   });
 
   it("explains Google Fonts downloads in offline builds (T3.2)", () => {
-    const hint = buildFailedHint(["Failed to fetch `Geist` from Google Fonts."]);
-    expect(hint).toMatch(/next\/font\/local|self-hosted/);
+    for (const line of [
+      "Failed to fetch `Geist` from Google Fonts.",
+      "Error: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/cssmodule.module.css'",
+    ]) {
+      const hint = buildFailedHint([line]);
+      expect(hint).toMatch(/Google Fonts/);
+      expect(hint).toMatch(/next\/font\/local/);
+      expect(hint).toMatch(/<link>/);
+    }
   });
 });
 

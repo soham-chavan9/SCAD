@@ -2,7 +2,9 @@ import { copyFile, chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/
 import { join, normalize, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeError, type ErrorEnvelope } from "@scad/shared";
-import { CONFIG_FILES, detectFramework, scriptOf, type Configs, type StaticSite } from "./frameworks.js";
+import { CONFIG_FILES, detectFramework, scriptOf, type Configs, type ServerSite, type StaticSite } from "./frameworks.js";
+import { planServerSite, serverStages, ServerSiteError } from "./server-sites.js";
+import { findGoogleFonts } from "./google-fonts.js";
 
 /**
  * T2.4 auto-detect: when an upload has no Dockerfile, SCAD writes one from a
@@ -14,7 +16,7 @@ import { CONFIG_FILES, detectFramework, scriptOf, type Configs, type StaticSite 
  * only `Dockerfile`, `.dockerignore`, and `.scad/` in the build context (a
  * temporary copy of the upload, never the founder's own files).
  */
-export type BuildKind = "dockerfile" | "node" | "python" | "static" | "site" | "hugo" | "jekyll";
+export type BuildKind = "dockerfile" | "node" | "python" | "static" | "site" | "server-site" | "hugo" | "jekyll";
 
 export type BuildPlan = {
   kind: BuildKind;
@@ -24,6 +26,12 @@ export type BuildPlan = {
   label?: string;
   /** Dependencies the trusted fetch step must download before the build. */
   fetch?: "npm" | "bundler";
+  /** T3.3: pinned packages SCAD adds for the build (a framework's Node adapter). */
+  extraDependencies?: Record<string, string>;
+  /** What SCAD changed in the build copy, for the build log. */
+  note?: string;
+  /** T3.3: Google fonts a Next.js site imports through next/font/google. */
+  googleFonts?: string[];
 };
 
 export type PrepareOptions = {
@@ -55,6 +63,8 @@ export const JEKYLL_BUILD_IMAGE = "ruby:3.3";
 /** SCAD's files in the build context (the CLI never uploads `.scad/`). */
 const SCAD_DIR = ".scad";
 const STATIC_SERVER_SOURCE = fileURLToPath(new URL("../assets/static-server.mjs", import.meta.url));
+const NEXT_FONT_MOCK_SOURCE = fileURLToPath(new URL("../assets/next-font-google-mock.cjs", import.meta.url));
+const NEXT_FONT_SERVER_SOURCE = fileURLToPath(new URL("../assets/next-font-server.cjs", import.meta.url));
 
 /** Build-time env: production mode, no telemetry or prompts, caches in /tmp. */
 const SITE_BUILD_ENV = [
@@ -106,9 +116,9 @@ async function nodeTemplate(dir: string, port: number): Promise<string> {
   const hasDeps = typeof deps === "object" && deps !== null && Object.keys(deps).length > 0;
   if (hasDeps && (await kindOf(dir, "node_modules")) !== "dir") {
     throw new AutodetectError(
-      "package.json has dependencies, but builds run offline and cannot npm install",
-      "Bundle the app into one file with its dependencies (for example `esbuild server.js --bundle --platform=node --outfile=dist/server.js`) and publish that without the dependencies list, or add a Dockerfile that copies vendored dependencies. See docs/build-isolation.md.",
-      { dependencies: Object.keys(deps as object).slice(0, 20) },
+      "This looks like a backend app (a Node server with npm dependencies and no website framework); backend apps come in SCAD M4",
+      "Backend apps come in SCAD M4. For now SCAD publishes websites: plain HTML, static builds (Vite, React, Astro, ...), and server-rendered sites (Next.js, Nuxt, SvelteKit, Remix, Astro). Publish the site part on its own, or bundle the server into one file with its dependencies (for example `esbuild server.js --bundle --platform=node --outfile=dist/server.js`) and publish that without the dependencies list. See docs/autodetect.md.",
+      { dependencies: Object.keys(deps as object).slice(0, 20), backend: true },
     );
   }
 
@@ -155,8 +165,8 @@ async function pythonTemplate(dir: string, port: number): Promise<string> {
   const hasWheels = (await kindOf(dir, "wheels")) === "dir";
   if (requirements.length > 0 && !hasWheels) {
     throw new AutodetectError(
-      "requirements.txt lists packages, but builds run offline and cannot pip install from PyPI",
-      "Vendor the packages as wheels: run `pip download -r requirements.txt -d wheels --only-binary=:all: --platform musllinux_1_2_x86_64 --python-version 3.12` (use aarch64 on Apple silicon) and publish the wheels/ folder with the app. See docs/build-isolation.md.",
+      "requirements.txt lists packages, but builds run offline and cannot pip install from PyPI (Python backend apps come in SCAD M4)",
+      "Backend apps with packages come in SCAD M4. For now, vendor the packages as wheels: run `pip download -r requirements.txt -d wheels --only-binary=:all: --platform musllinux_1_2_x86_64 --python-version 3.12` (use aarch64 on Apple silicon) and publish the wheels/ folder with the app. See docs/build-isolation.md.",
       { requirements: requirements.slice(0, 20) },
     );
   }
@@ -238,6 +248,30 @@ function siteTemplate(site: StaticSite, hasBuildScript: boolean, port: number): 
     `RUN ${pickOutputScript(site.output)}`,
     "",
     ...staticServeStage(port),
+  ].join("\n");
+}
+
+function serverTemplate(site: ServerSite, pkg: Record<string, unknown>, configs: Configs, port: number): string {
+  const hasBuild = scriptOf(pkg, "build") !== undefined;
+  const defaults: Record<ServerSite["id"], string[]> = {
+    next: ["next", "build"],
+    nuxt: ["nuxt", "build"],
+    sveltekit: ["vite", "build"],
+    remix: ["react-router", "build"],
+    astro: ["astro", "build"],
+  };
+  const d = defaults[site.id];
+  const build = hasBuild ? "RUN npm run build" : `RUN ${JSON.stringify([`node_modules/.bin/${d[0]}`, ...d.slice(1)])}`;
+  const { beforeBuild, afterBuild, runtime } = serverStages(site, pkg, configs, port, SITE_IMAGE);
+  return [
+    `# SCAD built-in template: ${site.label} server-rendered site (T3.3)`,
+    ...BUILD_STAGE_PREAMBLE,
+    ...beforeBuild,
+    build,
+    ...afterBuild,
+    "",
+    ...runtime,
+    "",
   ].join("\n");
 }
 
@@ -348,15 +382,24 @@ export async function prepareBuildContext(dir: string, port: number, opts: Prepa
       plan = { kind: "site", framework: site.id, label: site.label, fetch: "npm" };
       dockerfile = siteTemplate(site, hasBuild, port);
     } else if (site?.mode === "server") {
-      throw new AutodetectError(
-        `${site.label} sites that render on a server are not supported yet`,
-        site.id === "next"
-          ? 'Make it a static export: add `output: "export"` to next.config, then republish.'
-          : site.id === "astro"
-            ? "Remove the server adapter and `output: \"server\"` from astro.config to publish it as a static site, then republish."
-            : `Publish a static build instead (for example ${site.id === "sveltekit" ? "@sveltejs/adapter-static" : site.id === "nuxt" ? "`nuxt generate`" : "SPA mode with `ssr: false`"}), then republish.`,
-        { framework: site.id },
-      );
+      const configs = await readConfigs(dir);
+      await prepareScadDir(dir);
+      let server;
+      try {
+        server = planServerSite(site, pkg, configs);
+        dockerfile = serverTemplate(site, pkg, configs, port);
+      } catch (err) {
+        if (err instanceof ServerSiteError) throw new AutodetectError(err.message, err.hint, { framework: site.id });
+        throw err;
+      }
+      plan = {
+        kind: "server-site",
+        framework: site.id,
+        label: site.label,
+        fetch: "npm",
+        ...(Object.keys(server.extraDependencies).length > 0 ? { extraDependencies: server.extraDependencies } : {}),
+        ...(server.note ? { note: server.note } : {}),
+      };
     } else {
       plan = { kind: "node" };
       dockerfile = await nodeTemplate(dir, port);
@@ -369,6 +412,22 @@ export async function prepareBuildContext(dir: string, port: number, opts: Prepa
     dockerfile = staticTemplate(port);
   } else {
     throw new AutodetectError("No Dockerfile and no recognised app layout", SUPPORTED);
+  }
+  if (plan.framework === "next" || plan.framework === "next-export") {
+    const fonts = await findGoogleFonts(dir);
+    if (fonts.length > 0) {
+      await copyFile(NEXT_FONT_MOCK_SOURCE, join(dir, SCAD_DIR, "next-font-google-mock.cjs"));
+      await copyFile(NEXT_FONT_SERVER_SOURCE, join(dir, SCAD_DIR, "next-font-server.cjs"));
+      const env = `ENV NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/home/node/app/${SCAD_DIR}/next-font-google-mock.cjs`;
+      dockerfile = dockerfile.replace(`ENV ${SITE_BUILD_ENV}\n`, `ENV ${SITE_BUILD_ENV}\n${env}\n`);
+      // Loopback-only font server for the build step (Turbopack downloads font files itself).
+      dockerfile = dockerfile.replace(
+        /^RUN (npm run build|\[.*\])$/m,
+        (_m, build: string) =>
+          `RUN node ${SCAD_DIR}/next-font-server.cjs & p=$!; ${build.startsWith("[") ? (JSON.parse(build) as string[]).join(" ") : build}; s=$?; kill $p; exit $s`,
+      );
+      plan = { ...plan, googleFonts: fonts };
+    }
   }
   await writeFile(join(dir, "Dockerfile"), dockerfile, { flag: "wx" });
   return plan;
