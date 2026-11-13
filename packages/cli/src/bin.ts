@@ -18,7 +18,7 @@ import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
 import { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
 import { streamLogs } from "./logs.js";
-import { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
+import { listApps, listShares, rollbackApp, setVisibility, shareApp, unshareApp } from "./share.js";
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -232,6 +232,19 @@ async function main(): Promise<void> {
   // Operator commands (T2.6). Users: id or email. Apps: id or <owner-handle>/<slug>.
   const admin = program.command("admin").description("Operator controls (OPERATOR_EMAILS only)");
   const cfg = (c: Command) => c.option("--config <path>", "Config path", defaultConfigPath());
+
+  cfg(
+    program
+      .command("rollback")
+      .description("Go back to the previous working version of an app (its saved /data is kept)")
+      .argument("<app>", "App slug or id"),
+  ).action(
+    handleErrors(async (app: string, opts: { config: string }) => {
+      const out = await rollbackApp({ app, configPath: opts.config });
+      console.log(out.message);
+      if (out.url) console.log(out.url);
+    }),
+  );
 
   cfg(admin.command("users").description("List every user with role and status")).action(
     handleErrors(async (opts: { config: string }) => {

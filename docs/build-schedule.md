@@ -552,6 +552,66 @@ started.
    sign-in) is opt-in (T3.5). AGENTS §3 and §7 updated.
 6. **Merges.** #39, #40, and #41 are merged into `dev`.
 
+## M3 track A (Nov 11, overnight)
+
+| Task | Status | Branch | PR | Notes |
+|---|---|---|---|---|
+| T3.1 Public hosting at $0 | code done, live checks need founder | `task/t3-1-hosting` | see PR list | Checkbox left unticked: the live acceptance needs the founder's accounts |
+| T3.6 Rollback | code done, founder check pending | `task/t3-6-rollback` | see PR list | Automated equivalent of the founder check passes on real Docker |
+
+**T3.1 notes.** Built host-agnostic and proved locally:
+
+- Caddy on-demand TLS (`deploy/Caddyfile`) asks the control plane
+  (`GET /internal/tls-ask?domain=`) before every certificate. Allowed: `auth.`,
+  `api.`, and hosts of apps that exist (any status but deleted, so a suspended
+  site shows its page instead of a certificate error). Tests:
+  `apps/control-plane/src/tls-ask.integration.test.ts`.
+- `scripts/tls-smoke.sh` ran the real Caddyfile (Caddy 2.10.2, internal CA in
+  place of Let's Encrypt) against the real ask endpoint: live app, `api.`,
+  `auth.` got certificates; unknown app and foreign hosts got none; `/internal/*`
+  is 404 through `api.`. 6/6 passed on this Mac.
+- `deploy/compose.yml`: only Caddy publishes 80/443; Postgres on
+  `127.0.0.1` only; gateway unpublished; `NODE_ENV=production` and
+  `GATEWAY_FAKE_AUTH="0"` hard-coded; everything from `BASE_DOMAIN`.
+  Control plane and builder run on the host under systemd (they drive the
+  Docker socket, as in dev). Policy test: `apps/gateway/src/deploy-config.policy.test.ts`.
+- `api.{BASE_DOMAIN}`: the control plane's public URL defaults to
+  `https://api.{BASE_DOMAIN}` on a real domain (`PUBLIC_BASE_URL` still wins).
+- Gateway: refuses fake auth when `NODE_ENV=production`; trusts
+  `X-Forwarded-For` only from Caddy's pinned IP (`GATEWAY_TRUST_PROXY`), so
+  per-IP sign-in limits are per viewer, not one bucket for everyone behind
+  Caddy. Fastify's hop-count form did not pick the right address in tests,
+  so only IP/CIDR lists are accepted.
+- Device approval (`auth-device.ts`): already ignored forwarded headers for the
+  IP; now also refuses any request that carries a forwarding header, so a
+  proxy on the same host can never make a remote caller look like loopback.
+  Remote `scad login` approval through the browser is T3.4.
+- `deploy/firewall.sh`: 80/443 in; port 4000 only from the platform network;
+  app containers reach no host service. `deploy/backup.sh`: Postgres, `.env`
+  (MASTER_KEY, JWT keys), app volumes, `SCAD_DATA_DIR`.
+- arm64: every image SCAD builds or pulls is multi-arch (node, postgres,
+  caddy, busybox) and builds natively on the VM.
+
+**Needs founder (T3.1):** Oracle account and VM, DuckDNS name, Gmail app
+password; then (1) `dig +short hello.you.<name>.duckdns.org` returns the VM
+IP (two-level names), (2) the phone-on-mobile-data check with a real email,
+(3) gVisor for real (`SCAD_OCI_RUNTIME=runsc`, closes Blocked #6), (4)
+`deploy/firewall.sh` on the real VM and the adversarial suite there (INV1 on
+Linux: an app container must not reach the host's port 4000 or SSH). None of
+these could run here.
+
+**T3.6 notes.** `POST /v1/apps/:id/rollback`, `scad rollback <app>`, MCP
+`rollback`. New column `apps.current_release_id` (migration 0009, with down)
+so "current" survives a rollback: a successful build sets it, rollback moves
+it back, and resolve (port), env redeploys, and wake all serve it. Rolling back
+twice goes two versions back (not a toggle). `/data` is never touched; env
+vars are today's. Audit row `app.rollback`. Real Docker e2e: publish
+`counter-sqlite`, publish a broken update, roll back through MCP, the old
+code answers and the counter kept counting. **Needs founder:** the stage 6
+check itself (publish a broken change and undo it by asking the agent); the
+checkbox stays unticked until then. Merge note: track B may also add a
+migration numbered 0009; renumber whichever lands second.
+
 ## Blocked: needs human
 
 1. **Merges.** Merge #39 (T2.7), then #40 (T2.8), then #41 (T2.9). All

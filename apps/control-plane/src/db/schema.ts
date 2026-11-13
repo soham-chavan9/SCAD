@@ -9,6 +9,7 @@ import {
   integer,
   jsonb,
   pgEnum,
+  type AnyPgColumn,
   pgTable,
   primaryKey,
   text,
@@ -59,6 +60,13 @@ export const apps = pgTable(
     pinned: boolean("pinned").notNull().default(false),
     /** When the 7-day expiry warning went out for the current `expires_at` (T2.5). */
     expiryWarnedAt: timestamp("expiry_warned_at", { withTimezone: true }),
+    /**
+     * The release being served (T3.6). Set when a build goes live and by
+     * rollback. Null on older rows: the latest ready release is current.
+     */
+    currentReleaseId: uuid("current_release_id").references((): AnyPgColumn => releases.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => [unique("apps_owner_slug").on(t.ownerId, t.slug)],
 );

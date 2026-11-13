@@ -167,6 +167,8 @@ async function applyCompletion(
       })
       .where(eq(releases.id, release.id));
 
+    // The new release is what the app serves now (T3.6), suspended or not.
+    await tx.update(apps).set({ currentReleaseId: release.id }).where(eq(apps.id, release.appId));
     await tx
       .update(apps)
       .set({ status: "running" })

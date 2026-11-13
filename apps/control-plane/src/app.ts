@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import Fastify from "fastify";
+import { apiBaseUrlFor, isLocalBaseDomain } from "@scad/shared";
 import type { RuntimeProvider } from "@scad/runtime-conformance";
 import type { Db } from "./db/client.js";
 import { DeviceStore } from "./device-store.js";
@@ -21,7 +22,9 @@ import { internalBuildsRoutes } from "./routes/internal-builds.js";
 import { internalRoutes } from "./routes/internal.js";
 import { publishRoutes } from "./routes/publish.js";
 import { releasesRoutes } from "./routes/releases.js";
+import { rollbackRoutes } from "./routes/rollback.js";
 import { shareRoutes } from "./routes/share.js";
+import { tlsAskRoutes } from "./routes/tls-ask.js";
 import type { MasterKeyRing } from "./secrets/crypto.js";
 import { createDataPaths, ensureDataDirs, type DataPaths } from "./storage.js";
 
@@ -50,6 +53,15 @@ export type BuildAppOptions = {
   masterKeys?: MasterKeyRing;
 };
 
+/**
+ * Where the CLI and MCP server reach this control plane (T3.1). On a real
+ * domain it is `https://api.{BASE_DOMAIN}`; on localhost the control plane
+ * is reached directly.
+ */
+export function defaultPublicBaseUrl(baseDomain: string): string {
+  return isLocalBaseDomain(baseDomain) ? "http://127.0.0.1:4000" : apiBaseUrlFor(baseDomain);
+}
+
 export async function buildApp(opts: BuildAppOptions) {
   const app = Fastify({
     logger: false,
@@ -66,7 +78,7 @@ export async function buildApp(opts: BuildAppOptions) {
   const devices = opts.devices ?? new DeviceStore();
   const baseDomain = opts.baseDomain ?? process.env["BASE_DOMAIN"] ?? "localhost:8080";
   const publicBaseUrl =
-    opts.publicBaseUrl ?? process.env["PUBLIC_BASE_URL"] ?? "http://127.0.0.1:4000";
+    opts.publicBaseUrl ?? process.env["PUBLIC_BASE_URL"] ?? defaultPublicBaseUrl(baseDomain);
   const operatorEmails = new Set(
     (opts.operatorEmails ?? (process.env["OPERATOR_EMAILS"] ?? "").split(","))
       .map((e) => e.trim().toLowerCase())
@@ -95,6 +107,7 @@ export async function buildApp(opts: BuildAppOptions) {
     publicBaseUrl,
   });
   await app.register(appsRoutes, { db: opts.db, baseDomain });
+  await app.register(tlsAskRoutes, { db: opts.db, baseDomain });
   const machines =
     opts.machines ??
     (opts.runtime
@@ -123,6 +136,12 @@ export async function buildApp(opts: BuildAppOptions) {
     ...(opts.maxLiveApps !== undefined ? { maxLiveApps: opts.maxLiveApps } : {}),
   });
   await app.register(releasesRoutes, { db: opts.db, paths });
+  await app.register(rollbackRoutes, {
+    db: opts.db,
+    baseDomain,
+    ...(machines ? { machines } : {}),
+    ...(opts.masterKeys ? { masterKeys: opts.masterKeys } : {}),
+  });
   await app.register(internalBuildsRoutes, {
     db: opts.db,
     paths,

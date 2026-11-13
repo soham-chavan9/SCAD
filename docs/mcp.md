@@ -32,6 +32,7 @@ stdout carries only the MCP protocol.
 | `set_env` | `app`, `vars` (`{KEY: value or null}`), `secret?` | Set or remove env vars; returns key names only |
 | `get_logs` | `app`, `tail?` (1–1000) | Recent stdout/stderr lines from the log store |
 | `delete_app` | `app`, `confirm: true` | Removes the app, its container, `/data`, env, shares, logs |
+| `rollback` | `app` | Serves the previous working version again (T3.6); `/data` and env are kept |
 
 `app` is a slug or an app id.
 

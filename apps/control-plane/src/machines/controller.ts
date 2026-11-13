@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { deploySpecFromManifest } from "@scad/shared";
+import { currentRelease } from "../releases/current.js";
 import type { ManagedRuntime } from "@scad/runtime-conformance";
 import type { Db } from "../db/client.js";
 import { apps, auditEvents, machines, releases, usageViewers } from "../db/schema.js";
@@ -65,23 +66,40 @@ export class MachineController {
    * Returns false when there is no ready release to deploy yet.
    */
   async redeploy(appId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+    return this.#serialDeploy(appId, runtimeEnv);
+  }
+
+  /**
+   * Deploy one specific ready release of the app and make it current
+   * (rollback, T3.6). The /data volume is kept: the runtime replaces the
+   * container only. Returns false when the app may not run or the release
+   * is not a ready release of this app.
+   */
+  async deployRelease(appId: string, releaseId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+    return this.#serialDeploy(appId, runtimeEnv, releaseId);
+  }
+
+  async #serialDeploy(appId: string, runtimeEnv: Record<string, string>, releaseId?: string): Promise<boolean> {
     const current = this.#ops.get(appId);
     if (current) await current.done.catch(() => undefined);
-    const done = this.#doRedeploy(appId, runtimeEnv);
+    const done = this.#doRedeploy(appId, runtimeEnv, releaseId);
     this.#track(appId, { kind: "deploy", done });
     return done;
   }
 
-  async #doRedeploy(appId: string, runtimeEnv: Record<string, string>): Promise<boolean> {
+  async #doRedeploy(appId: string, runtimeEnv: Record<string, string>, releaseId?: string): Promise<boolean> {
     const [app] = await this.#db.select({ status: apps.status }).from(apps).where(eq(apps.id, appId)).limit(1);
     // A suspended app stays stopped; the new env applies once it is lifted (T2.6).
     if (!app || app.status === "suspended" || app.status === "deleted") return false;
-    const [release] = await this.#db
-      .select({ imageRef: releases.imageRef, manifest: releases.manifest })
-      .from(releases)
-      .where(and(eq(releases.appId, appId), eq(releases.status, "ready")))
-      .orderBy(desc(releases.version))
-      .limit(1);
+    const release = releaseId
+      ? (
+          await this.#db
+            .select()
+            .from(releases)
+            .where(and(eq(releases.id, releaseId), eq(releases.appId, appId), eq(releases.status, "ready")))
+            .limit(1)
+        )[0]
+      : await currentRelease(this.#db, appId);
     if (!release?.imageRef) return false;
 
     const spec = deploySpecFromManifest({
@@ -115,6 +133,9 @@ export class MachineController {
       .update(apps)
       .set({ status: "running" })
       .where(and(eq(apps.id, appId), eq(apps.status, "stopped")));
+    if (releaseId) {
+      await this.#db.update(apps).set({ currentReleaseId: release.id }).where(eq(apps.id, appId));
+    }
     this.#onMachineRunning(appId, machine.providerId);
     return true;
   }

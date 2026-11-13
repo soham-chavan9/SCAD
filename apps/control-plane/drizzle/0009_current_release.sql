@@ -1,0 +1,2 @@
+ALTER TABLE "apps" ADD COLUMN "current_release_id" uuid;--> statement-breakpoint
+ALTER TABLE "apps" ADD CONSTRAINT "apps_current_release_id_releases_id_fk" FOREIGN KEY ("current_release_id") REFERENCES "public"."releases"("id") ON DELETE set null ON UPDATE no action;

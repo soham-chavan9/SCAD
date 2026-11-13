@@ -16,5 +16,6 @@ export {
   type DeviceCodeResponse,
   type PublishResponse,
   type ReleaseStatus,
+  type RollbackResult,
   type ScadClientOptions,
 } from "./client.js";

@@ -65,3 +65,5 @@ export {
   startToArgv,
   type DeploySpecShape,
 } from "./deploy-spec.js";
+
+export { apiBaseUrlFor, apiHostFor, authHostFor, isLocalBaseDomain, schemeFor } from "./hosts.js";

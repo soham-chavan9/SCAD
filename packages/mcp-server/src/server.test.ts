@@ -43,6 +43,17 @@ function fakeDeps(overrides: Partial<ScadMcpDeps> = {}): ScadMcpDeps & { calls: 
         calls.push(`delete ${a}`);
         return { app_id: "a1", slug: "demo", status: "deleted" };
       },
+      rollback: async (a) => {
+        calls.push(`rollback ${a}`);
+        return {
+          app_id: "a1",
+          slug: "demo",
+          url: app.url,
+          release: { id: "r1", version: 1 },
+          previous: { id: "r2", version: 2 },
+          message: "Went back from version 2 to version 1. Saved data was not changed.",
+        };
+      },
     },
     ...overrides,
   };
@@ -70,7 +81,7 @@ afterEach(async () => {
 });
 
 describe("SCAD MCP server (T1.8)", () => {
-  it("exposes exactly the eight tools, each describing purpose, inputs, and errors", async () => {
+  it("exposes exactly the listed tools, each describing purpose, inputs, and errors", async () => {
     const c = await connect(fakeDeps());
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
@@ -161,5 +172,14 @@ describe("SCAD MCP server (T1.8)", () => {
     const result = await c.callTool({ name: "share", arguments: { app: "demo", email: "not-an-email" } });
     expect(result.isError).toBe(true);
     expect(text(result)).toMatch(/email/i);
+  });
+
+  it("rollback goes back one version in one call (T3.6)", async () => {
+    const deps = fakeDeps();
+    const c = await connect(deps);
+    const result = await c.callTool({ name: "rollback", arguments: { app: "demo" } });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(text(result))).toMatchObject({ release: { version: 1 }, message: expect.stringMatching(/version 1/) });
+    expect(deps.calls).toContain("rollback demo");
   });
 });
