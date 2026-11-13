@@ -1,5 +1,9 @@
 #!/usr/bin/env node --experimental-strip-types
+import { createReadStream } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
+import { describeLink, visibilityFor } from "@scad/shared";
 import {
   adminAudit,
   adminDeleteApp,
@@ -16,9 +20,10 @@ import { defaultConfigPath, loadConfig } from "./config.js";
 import { loginWithDeviceCode } from "./login.js";
 import { openApp } from "./open-app.js";
 import { publishDir } from "./publish.js";
+import { setup } from "./setup.js";
 import { listEnv, parseAssignments, setEnv, unsetEnv } from "./env.js";
 import { streamLogs } from "./logs.js";
-import { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
+import { listApps, listShares, rollbackApp, setVisibility, shareApp, unshareApp } from "./share.js";
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -33,19 +38,25 @@ async function main(): Promise<void> {
       "Auto-approve device code (local/dev)",
       process.env["SCAD_APPROVE_EMAIL"],
     )
+    .option("--email <email>", "Email me an approval link (works from any machine; operators only)")
     .option("--config <path>", "Config path", defaultConfigPath())
-    .action(async (opts: { apiUrl: string; approveEmail?: string; config: string }) => {
+    .action(async (opts: { apiUrl: string; approveEmail?: string; email?: string; config: string }) => {
       const config = await loginWithDeviceCode({
         apiUrl: opts.apiUrl,
         ...(opts.approveEmail ? { approveEmail: opts.approveEmail } : {}),
+        ...(opts.email ? { email: opts.email } : {}),
         configPath: opts.config,
-        onUserCode: ({ userCode, verificationUri }) => {
-          console.log(`User code: ${userCode}`);
-          console.log(`Approve at: ${verificationUri}`);
-          if (!opts.approveEmail) {
+        onUserCode: ({ userCode, verificationUri, message }) => {
+          console.log(`Code: ${userCode}`);
+          if (message) {
+            console.log(message);
+            console.log("Waiting for you to press Approve…");
+          } else if (!opts.approveEmail) {
+            console.log(`Approve at: ${verificationUri}`);
             console.log(
-              `POST ${verificationUri} with JSON {"user_code":"${userCode}","email":"you@example.com"}`,
+              `On the server: POST ${verificationUri} with JSON {"user_code":"${userCode}","email":"you@example.com"}`,
             );
+            console.log("Or from any machine: scad login --email you@example.com");
           }
         },
       });
@@ -54,19 +65,46 @@ async function main(): Promise<void> {
     });
 
   program
+    .command("setup")
+    .description("First-time setup (run by the install command): log in and add SCAD to Claude Code and Cursor")
+    .requiredOption("--api-url <url>", "This SCAD instance's API, e.g. https://api.myscad.duckdns.org")
+    .option("--email <email>", "Your email (where the approval link goes)")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (opts: { apiUrl: string; email?: string; config: string }) => {
+        const bundle = process.argv[1] ? resolvePath(process.argv[1]) : "";
+        if (!bundle.endsWith(".mjs")) {
+          throw new Error("Run setup from the installed SCAD (the install command from docs/getting-started.md).");
+        }
+        await setup({
+          apiUrl: opts.apiUrl,
+          ...(opts.email ? { email: opts.email } : {}),
+          askEmail: askOnTerminal("Your email address (the one SCAD knows you by): "),
+          mcpCommand: { command: process.execPath, args: [bundle, "mcp"] },
+          configPath: opts.config,
+        });
+      }),
+    );
+
+  program
     .command("publish")
     .description("Publish a directory (Dockerfile, or package.json / requirements.txt / index.html)")
     .argument("[dir]", "Directory to publish", ".")
     .option("--name <slug>", "App slug override")
+    .option("--public", "Anyone with the link can open it, no sign-in (search engines are asked not to list it)")
+    .option("--private", "Only people you share it with can open it (the default for new apps)")
     .option("--config <path>", "Config path", defaultConfigPath())
-    .action(async (dir: string, opts: { name?: string; config: string }) => {
+    .action(async (dir: string, opts: { name?: string; public?: boolean; private?: boolean; config: string }) => {
       try {
+        if (opts.public && opts.private) throw new Error("Pass --public or --private, not both");
         const result = await publishDir({
           dir,
           ...(opts.name ? { name: opts.name } : {}),
+          ...(opts.public ? { visibility: "public" as const } : opts.private ? { visibility: "allowlist" as const } : {}),
           configPath: opts.config,
           onStatus: (line) => console.log(line),
         });
+        console.log(result.link);
         console.log(result.url);
       } catch (err) {
         if (err && typeof err === "object" && "envelope" in err) {
@@ -101,6 +139,20 @@ async function main(): Promise<void> {
         throw err;
       }
     });
+
+  program
+    .command("visibility")
+    .description("Make an app's link private (only people you share with) or public (anyone with the link)")
+    .argument("<app>", "App slug or id")
+    .argument("<kind>", "private | public")
+    .option("--config <path>", "Config path", defaultConfigPath())
+    .action(
+      handleErrors(async (app: string, kind: string, opts: { config: string }) => {
+        if (kind !== "private" && kind !== "public") throw new Error("Use: scad visibility <app> private|public");
+        const out = await setVisibility({ app, visibility: visibilityFor(kind), configPath: opts.config });
+        console.log(`${out.slug}: ${describeLink(out.visibility)}`);
+      }),
+    );
 
   program
     .command("share")
@@ -233,6 +285,19 @@ async function main(): Promise<void> {
   const admin = program.command("admin").description("Operator controls (OPERATOR_EMAILS only)");
   const cfg = (c: Command) => c.option("--config <path>", "Config path", defaultConfigPath());
 
+  cfg(
+    program
+      .command("rollback")
+      .description("Go back to the previous working version of an app (its saved /data is kept)")
+      .argument("<app>", "App slug or id"),
+  ).action(
+    handleErrors(async (app: string, opts: { config: string }) => {
+      const out = await rollbackApp({ app, configPath: opts.config });
+      console.log(out.message);
+      if (out.url) console.log(out.url);
+    }),
+  );
+
   cfg(admin.command("users").description("List every user with role and status")).action(
     handleErrors(async (opts: { config: string }) => {
       for (const u of await adminUsers({ configPath: opts.config })) {
@@ -327,6 +392,20 @@ async function main(): Promise<void> {
 }
 
 /** Print §8 error envelopes as JSON and exit 1, rethrow anything else. */
+/** Ask one question on the terminal, even when stdin is the piped install script. */
+function askOnTerminal(question: string): () => Promise<string> {
+  return async () => {
+    const input = process.stdin.isTTY ? process.stdin : createReadStream("/dev/tty");
+    const rl = createInterface({ input, output: process.stdout });
+    try {
+      return await rl.question(question);
+    } finally {
+      rl.close();
+      if (input !== process.stdin) input.destroy();
+    }
+  };
+}
+
 function handleErrors<A extends unknown[]>(fn: (...args: A) => Promise<void>) {
   return async (...args: A): Promise<void> => {
     try {

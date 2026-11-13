@@ -1,0 +1,46 @@
+# SCAD TLS front (T3.1). Every name comes from env: BASE_DOMAIN, ACME_EMAIL,
+# TLS_ASK_URL, CONTROL_PLANE_UPSTREAM (see deploy/compose.yml).
+#
+# Certificates are issued on demand, one per hostname, and only after the
+# control plane's ask endpoint says the name is the auth host, the API host,
+# or an app that exists. Unknown names get no certificate (TLS handshake fails).
+{
+	email {$ACME_EMAIL}
+	# Local proof only (scripts/tls-smoke.sh): CADDY_ISSUER=internal uses
+	# Caddy's own CA instead of Let's Encrypt. Production leaves it as acme.
+	cert_issuer {$CADDY_ISSUER:acme}
+	on_demand_tls {
+		ask {$TLS_ASK_URL}
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# CLI and MCP server: api.{BASE_DOMAIN} -> control plane. Internal routes
+	# (gateway/builder only) are never reachable from the internet.
+	@api host api.{$BASE_DOMAIN}
+	handle @api {
+		@internal path /internal /internal/*
+		respond @internal 404
+		reverse_proxy {$CONTROL_PLANE_UPSTREAM}
+	}
+
+	# auth.{BASE_DOMAIN} and every {slug}.{owner}.{BASE_DOMAIN} -> gateway.
+	# Caddy replaces any X-Forwarded-For a visitor sends with their real IP
+	# (no trusted_proxies), and the gateway trusts only Caddy's pinned address.
+	handle {
+		reverse_proxy gateway:8080
+	}
+}
+
+http:// {
+	redir https://{host}{uri} permanent
+}

@@ -1,0 +1,19 @@
+# Control plane on the host (T3.1). Install: docs/deploy.md step 7.
+[Unit]
+Description=SCAD control plane
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+User=scad
+Group=scad
+WorkingDirectory=/opt/scad
+ExecStart=/usr/bin/bash scripts/with-env.sh pnpm --filter @scad/control-plane start
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { saveConfig } from "./config.js";
-import { listApps, listShares, setVisibility, shareApp, unshareApp } from "./share.js";
+import { listApps, listShares, rollbackApp, setVisibility, shareApp, unshareApp } from "./share.js";
 
 type Call = { method: string; url: string; body: unknown; auth: string | null };
 
@@ -70,5 +70,23 @@ describe("scad share / unshare / ls (T1.2)", () => {
     const out = await setVisibility({ app: "board", visibility: "instance", configPath, fetchImpl });
     expect(out.visibility).toBe("instance");
     expect(calls[0]).toMatchObject({ method: "PATCH", body: { visibility: "instance" } });
+  });
+});
+
+describe("scad rollback (T3.6)", () => {
+  it("POSTs to the app's rollback route with the PAT", async () => {
+    const { configPath, calls, fetchImpl } = await setup({
+      "POST /v1/apps/board/rollback": {
+        app_id: "a1",
+        slug: "board",
+        url: "http://board.me.localhost:8080",
+        release: { id: "r1", version: 1 },
+        previous: { id: "r2", version: 2 },
+        message: "Went back from version 2 to version 1. Saved data was not changed.",
+      },
+    });
+    const out = await rollbackApp({ app: "board", configPath, fetchImpl });
+    expect(out.release.version).toBe(1);
+    expect(calls[0]).toMatchObject({ method: "POST", url: "http://cp.test/v1/apps/board/rollback", auth: "Bearer pat-1" });
   });
 });

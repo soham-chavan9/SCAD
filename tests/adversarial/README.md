@@ -23,6 +23,7 @@ Hostile sample apps live in `examples/adversarial/` and build offline
 | Exhaust memory | `memory-hog` (OOM-killed at its limit) | `inv6-resource-limits.test.ts` | 6 |
 | Exhaust CPU | `cpu-hog` saturates every core; the neighbour still answers in under 1 s | `hostile-apps.test.ts` › a CPU hog cannot starve its neighbour | 6 |
 | Exhaust disk | `disk-filler` writes to the rootfs (read-only), `/tmp` (64 MiB tmpfs), and `/data` (measured quota stops it); log buffer is capped | `hostile-apps.test.ts` › filling the disk | 6 |
+| Abuse a public link | anonymous visitor with forged `X-SCAD-*` headers, forged and cross-app cookies, request floods; owner flips public → private; operator suspend | `public-links.test.ts` | 3, 4, 9 |
 | Escape via privileged syscalls | `escape` tries setuid/setgid 0, rootfs write, chown to root, mount, mknod, chroot, user namespaces, raw sockets, ICMP out, sysrq, sysctl, kernel modules, exec from `/tmp`; checks CapEff=0, NoNewPrivs=1, seccomp on | `hostile-apps.test.ts` › escaping the sandbox | 6 |
 
 Other invariants have their own named tests outside this folder:

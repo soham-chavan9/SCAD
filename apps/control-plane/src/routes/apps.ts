@@ -109,7 +109,7 @@ export const appsRoutes: FastifyPluginAsync<AppsRoutesOpts> = async (app, opts) 
         404,
         "NOT_FOUND",
         "App not found",
-        "Pass a slug or app id you own (from `scad publish` or GET /v1/apps).",
+        "No site of yours has that name. Check the name with list_apps (or `scad ls`) and try again.",
       );
     }
 

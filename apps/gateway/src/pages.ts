@@ -80,6 +80,14 @@ export function checkEmailPage(): string {
   );
 }
 
+/** T3.5: an anonymous visitor hit a public site's per-IP limit. */
+export function publicRateLimitedPage(): string {
+  return htmlPage(
+    "Too many requests",
+    "<h1>Too many requests</h1><p>This site got a lot of requests from your network. Wait a minute, then reload.</p>",
+  );
+}
+
 export function rateLimitedPage(): string {
   return htmlPage(
     "Too many requests",

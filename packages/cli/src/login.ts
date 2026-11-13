@@ -5,10 +5,12 @@ export type LoginOptions = {
   apiUrl: string;
   /** When set, auto-approve the device code (local/dev / tests). */
   approveEmail?: string;
+  /** T3.4: email an approval link to this (operator) address; works from any machine. */
+  email?: string;
   pollMs?: number;
   configPath?: string;
   fetchImpl?: typeof fetch;
-  onUserCode?: (info: { userCode: string; verificationUri: string }) => void;
+  onUserCode?: (info: { userCode: string; verificationUri: string; message?: string }) => void;
 };
 
 export async function loginWithDeviceCode(opts: LoginOptions): Promise<ScadConfig> {
@@ -17,10 +19,11 @@ export async function loginWithDeviceCode(opts: LoginOptions): Promise<ScadConfi
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
 
-  const device = await client.startDeviceAuth();
+  const device = await client.startDeviceAuth(opts.email);
   opts.onUserCode?.({
     userCode: device.user_code,
     verificationUri: device.verification_uri,
+    ...(device.message ? { message: device.message } : {}),
   });
 
   if (opts.approveEmail) {
@@ -41,5 +44,7 @@ export async function loginWithDeviceCode(opts: LoginOptions): Promise<ScadConfi
     await new Promise((r) => setTimeout(r, pollMs));
   }
 
-  throw new Error("Login timed out waiting for device authorization");
+  throw new Error(
+    "Login timed out: nobody pressed Approve within 10 minutes. Run `scad login` again and use the newest email.",
+  );
 }
