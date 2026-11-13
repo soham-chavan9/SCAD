@@ -90,3 +90,14 @@ describe("dev docker-compose.yml", () => {
     expect(read("docker-compose.yml")).toMatch(/BASE_DOMAIN: \$\{BASE_DOMAIN:-localhost:8080\}/);
   });
 });
+
+describe("deploy/systemd/scad-builder.service", () => {
+  it("keeps temp files where the Docker daemon can see them (fetch bind-mounts its workspace)", () => {
+    const unit = read("deploy/systemd/scad-builder.service");
+    const tmpdir = unit.match(/^Environment=TMPDIR=(\S+)$/m)?.[1];
+    if (/^PrivateTmp=true$/m.test(unit)) {
+      expect(tmpdir, "PrivateTmp hides /tmp and /var/tmp from dockerd; set TMPDIR elsewhere").toBeDefined();
+      expect(tmpdir!.startsWith("/tmp") || tmpdir!.startsWith("/var/tmp")).toBe(false);
+    }
+  });
+});

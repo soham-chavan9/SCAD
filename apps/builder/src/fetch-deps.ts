@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { makeError, type ErrorEnvelope } from "@scad/shared";
 import { buildEnv } from "./docker-build.js";
@@ -207,20 +208,90 @@ export const BUNDLER_FETCH_SCRIPT = [
   "bundle cache --no-install",
 ].join("\n");
 
+/**
+ * The fetch sandbox runs code we do not trust (a Jekyll Gemfile is Ruby), so
+ * everything it leaves in its workspace is checked on the host before use: a
+ * link pointing outside the workspace could otherwise make a host-side copy
+ * or read pick up platform secrets (INV8).
+ */
+function unsafeFetchOutput(what: string): FetchError {
+  return new FetchError(
+    "The dependency download left an unsafe file",
+    "SCAD refused a link or special file the download step created (" +
+      what +
+      "). Released packages never need this; check the Gemfile or package.json for unusual code, then republish.",
+    { phase: "fetch", path: what },
+  );
+}
+
+/** Each segment of `rel` under `root` must be a real directory (no links). */
+async function assertRealDirPath(root: string, rel: string): Promise<string> {
+  let current = root;
+  for (const part of rel.split("/")) {
+    current = join(current, part);
+    const st = await lstat(current).catch(() => null);
+    if (!st || !st.isDirectory()) throw unsafeFetchOutput(relative(root, current));
+  }
+  return current;
+}
+
+/**
+ * Walk a directory the sandbox produced. Regular files and directories are fine;
+ * with `allowLinks`, relative links that stay inside `dir` are fine (npm's
+ * `.bin` entries). Anything else (absolute or escaping links, devices, fifos) is refused.
+ */
+export async function assertSafeFetchedTree(dir: string, opts: { allowLinks: boolean }): Promise<void> {
+  const rootStat = await lstat(dir);
+  if (!rootStat.isDirectory()) throw unsafeFetchOutput(dir);
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const e of await readdir(current, { withFileTypes: true })) {
+      const p = join(current, e.name);
+      if (e.isDirectory()) {
+        stack.push(p);
+      } else if (e.isSymbolicLink()) {
+        const target = await readlink(p);
+        const back = relative(dir, resolve(dirname(p), target));
+        if (!opts.allowLinks || isAbsolute(target) || back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back)) {
+          throw unsafeFetchOutput(relative(dir, p));
+        }
+      } else if (!e.isFile()) {
+        throw unsafeFetchOutput(relative(dir, p));
+      }
+    }
+  }
+}
+
+/** Copy one file the sandbox wrote: a regular file only, never through a link, on either end. */
+export async function copyFetchedFile(src: string, dst: string): Promise<void> {
+  let input;
+  try {
+    input = await open(src, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch {
+    throw unsafeFetchOutput(src);
+  }
+  try {
+    if (!(await input.stat()).isFile()) throw unsafeFetchOutput(src);
+    const data = await input.readFile();
+    await rm(dst, { force: true });
+    const output = await open(dst, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
+    try {
+      await output.writeFile(data);
+    } finally {
+      await output.close();
+    }
+  } finally {
+    await input.close();
+  }
+}
+
 const NPM_LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"] as const;
 const OTHER_LOCKFILES = ["pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"] as const;
 
 async function isFile(path: string): Promise<boolean> {
   try {
     return (await lstat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function isDir(path: string): Promise<boolean> {
-  try {
-    return (await lstat(path)).isDirectory();
   } catch {
     return false;
   }
@@ -394,7 +465,9 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
       );
     }
     const modules = join(work, "node_modules");
-    if (!(await isDir(modules))) await mkdir(modules);
+    if (!(await lstat(modules).catch(() => null))) await mkdir(modules);
+    await assertRealDirPath(work, "node_modules");
+    await assertSafeFetchedTree(modules, { allowLinks: true });
     const maxBytes = opts.maxBytes ?? FETCH_LIMITS.maxBytes;
     if ((await dirSize(modules, maxBytes)) > maxBytes) {
       throw new FetchError(
@@ -418,7 +491,9 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
         opts,
       );
       fontLog = fontRun.log;
-      if (fontRun.ok && (await isDir(join(work, "fonts", "node_modules")))) {
+      if (fontRun.ok && (await lstat(join(work, "fonts", "node_modules")).catch(() => null))) {
+        await assertRealDirPath(work, "fonts/node_modules");
+        await assertSafeFetchedTree(join(work, "fonts", "node_modules"), { allowLinks: true });
         await mkdir(join(ctxDir, ".scad", "fonts"), { recursive: true });
         await rename(join(work, "fonts", "node_modules"), join(ctxDir, ".scad", "fonts", "node_modules"));
         log(`scad-fetch: Google fonts ${fonts.join(", ")} from npm (@fontsource) for next/font/google`);
@@ -430,8 +505,10 @@ export async function fetchNodeDependencies(ctxDir: string, opts: FetchOptions =
     if (!npmLock || extras.length > 0) {
       // The build sees the lockfile npm resolved (and any SCAD-added adapter),
       // so it agrees with node_modules. This is the build copy, not the founder's files.
-      await copyFile(join(work, "package-lock.json"), join(ctxDir, "package-lock.json")).catch(() => {});
-      if (extras.length > 0) await copyFile(join(work, "package.json"), join(ctxDir, "package.json"));
+      if (await lstat(join(work, "package-lock.json")).catch(() => null)) {
+        await copyFetchedFile(join(work, "package-lock.json"), join(ctxDir, "package-lock.json"));
+      }
+      if (extras.length > 0) await copyFetchedFile(join(work, "package.json"), join(ctxDir, "package.json"));
     }
     return { log: fontLog ? `${out.log}\n${fontLog}` : out.log, skippedInstallScripts };
   } finally {
@@ -478,14 +555,16 @@ export async function fetchRubyGems(ctxDir: string, opts: FetchOptions = {}): Pr
         out.log,
       );
     }
+    const gemCache = await assertRealDirPath(work, "vendor/cache");
+    await assertSafeFetchedTree(gemCache, { allowLinks: false });
     const maxBytes = opts.maxBytes ?? FETCH_LIMITS.maxBytes;
-    if ((await dirSize(join(work, "vendor"), maxBytes)) > maxBytes) {
+    if ((await dirSize(gemCache, maxBytes)) > maxBytes) {
       throw new FetchError(`Gems are larger than ${Math.round(maxBytes / 1048576)} MB`, "Remove gems the site does not use, then republish.");
     }
     await rm(join(ctxDir, "vendor", "cache"), { recursive: true, force: true });
     await mkdir(join(ctxDir, "vendor"), { recursive: true });
-    await rename(join(work, "vendor", "cache"), join(ctxDir, "vendor", "cache"));
-    await copyFile(join(work, "Gemfile.lock"), join(ctxDir, "Gemfile.lock"));
+    await rename(gemCache, join(ctxDir, "vendor", "cache"));
+    await copyFetchedFile(join(work, "Gemfile.lock"), join(ctxDir, "Gemfile.lock"));
     return { log: out.log, skippedInstallScripts: [] };
   } finally {
     await rm(work, { recursive: true, force: true });

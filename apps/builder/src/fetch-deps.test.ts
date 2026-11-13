@@ -1,11 +1,14 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PLATFORM_SECRET_ENV } from "./docker-build.js";
 import {
+  assertSafeFetchedTree,
+  copyFetchedFile,
   FetchError,
   fetchNodeDependencies,
+  fetchRubyGems,
   fetchRunArgs,
   FONT_FETCH_SCRIPT,
   NPM_FETCH_SCRIPT,
@@ -211,3 +214,68 @@ describe("SCAD-added dependencies and fonts (T3.3)", () => {
   });
 });
 
+
+describe("fetch output is checked on the host (INV8: no secrets through links)", () => {
+  const workOf = (args: string[]) => args[args.indexOf("-v") + 1]!.split(":/work")[0]!;
+
+  it("a Gemfile that swaps Gemfile.lock for a link to the host .env is refused, and the secret is not copied", async () => {
+    const host = await fixture({ ".env": "MASTER_KEY=host-secret" });
+    const ctx = await fixture({ Gemfile: 'source "https://rubygems.org"\ngem "jekyll"\n' });
+    const { exec } = fakeDocker(async (args) => {
+      const work = workOf(args);
+      await mkdir(join(work, "vendor", "cache"), { recursive: true });
+      await writeFile(join(work, "vendor", "cache", "jekyll-4.4.1.gem"), "gem");
+      await rm(join(work, "Gemfile.lock"), { force: true });
+      await symlink(join(host, ".env"), join(work, "Gemfile.lock"));
+    });
+    const err = (await fetchRubyGems(ctx, { exec, policyDir: await fixture({}) }).catch((e: unknown) => e)) as FetchError;
+    expect(err).toBeInstanceOf(FetchError);
+    expect(err.envelope.code).toBe("BUILD_FAILED");
+    const lock = await readFile(join(ctx, "Gemfile.lock"), "utf8").catch(() => "");
+    expect(lock).not.toContain("host-secret");
+  });
+
+  it("a gem cache that is a link out of the workspace is refused before anything is moved", async () => {
+    const host = await fixture({ "secret/key": "host-secret" });
+    const ctx = await fixture({ Gemfile: 'source "https://rubygems.org"\n' });
+    const { exec } = fakeDocker(async (args) => {
+      const work = workOf(args);
+      await writeFile(join(work, "Gemfile.lock"), "GEM\n");
+      await mkdir(join(work, "vendor"), { recursive: true });
+      await symlink(join(host, "secret"), join(work, "vendor", "cache"));
+    });
+    await expect(fetchRubyGems(ctx, { exec, policyDir: await fixture({}) })).rejects.toBeInstanceOf(FetchError);
+    expect(await readFile(join(host, "secret", "key"), "utf8")).toBe("host-secret");
+    await expect(readFile(join(ctx, "vendor", "cache", "key"), "utf8")).rejects.toThrow();
+  });
+
+  it("node_modules: relative links inside are fine; absolute or escaping links are refused", async () => {
+    const ok = await fixture({ "vite/bin/vite.js": "x" });
+    await mkdir(join(ok, ".bin"));
+    await symlink("../vite/bin/vite.js", join(ok, ".bin", "vite"));
+    await expect(assertSafeFetchedTree(ok, { allowLinks: true })).resolves.toBeUndefined();
+
+    const abs = await fixture({ "a/package.json": "{}" });
+    await symlink("/etc/passwd", join(abs, "a", "leak"));
+    await expect(assertSafeFetchedTree(abs, { allowLinks: true })).rejects.toBeInstanceOf(FetchError);
+
+    const up = await fixture({ "a/package.json": "{}" });
+    await symlink("../../outside", join(up, "a", "leak"));
+    await expect(assertSafeFetchedTree(up, { allowLinks: true })).rejects.toBeInstanceOf(FetchError);
+
+    await expect(assertSafeFetchedTree(ok, { allowLinks: false })).rejects.toBeInstanceOf(FetchError);
+  });
+
+  it("copyFetchedFile copies regular files and refuses a link on either end", async () => {
+    const d = await fixture({ "src.txt": "hello", "secret.txt": "host-secret" });
+    await copyFetchedFile(join(d, "src.txt"), join(d, "out.txt"));
+    expect(await readFile(join(d, "out.txt"), "utf8")).toBe("hello");
+
+    await symlink(join(d, "secret.txt"), join(d, "link.txt"));
+    await expect(copyFetchedFile(join(d, "link.txt"), join(d, "out2.txt"))).rejects.toBeInstanceOf(FetchError);
+
+    await symlink(join(d, "secret.txt"), join(d, "dst-link.txt"));
+    await copyFetchedFile(join(d, "src.txt"), join(d, "dst-link.txt"));
+    expect(await readFile(join(d, "secret.txt"), "utf8")).toBe("host-secret");
+  });
+});
